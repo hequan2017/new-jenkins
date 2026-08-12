@@ -16,11 +16,13 @@
 - `system-core`: 项目核心能力，主要分布在 `server/` 与 `web/src/`
 - `plugins`: 插件化能力，分布在 `server/plugin/` 与 `web/src/plugin/`
 - `deploy`: 运行与发布相关能力，位于 `deploy/`
+- `workflow`: 自研类 Jenkins 流水线引擎(Pipeline→Stage→Step),业务模块
 
 ## 已存在的约束文档
 
 - `backend-layer-rules.md`: 后端分层、模型、Service、API、Router、初始化入口
 - `plugin-development.md`: 前后端插件结构、插件入口与开发流程
+- `workflow.md`: 自研流水线引擎模块职责、入口、契约与限制
 
 ## 命名建议
 

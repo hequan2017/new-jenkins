@@ -15,6 +15,9 @@ func initBizRouter(routers ...*gin.RouterGroup) {
 	privateGroup := routers[0]
 	publicGroup := routers[1]
 
+	// 业务模块路由注册
+	router.RouterGroupApp.Workflow.InitWorkflowRouter(privateGroup)
+
 	holder(publicGroup, privateGroup)
 
 }

@@ -62,6 +62,7 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "systemTools", Name: "systemTools", Component: "view/routerHolder.vue", Sort: 7, Meta: Meta{Title: "编程辅助", Icon: "cpu"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "ai", Name: "ai", Component: "view/routerHolder.vue", Sort: 8, Meta: Meta{Title: "AI 工坊", Icon: "ai-gva"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "example", Name: "example", Component: "view/example/index.vue", Sort: 9, Meta: Meta{Title: "示例文件", Icon: "example-gva"}},
+		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "workflow", Name: "workflow", Component: "view/routerHolder.vue", Sort: 14, Meta: Meta{Title: "工作流平台", Icon: "set-up"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "plugin", Name: "plugin", Component: "view/routerHolder.vue", Sort: 10, Meta: Meta{Title: "插件系统", Icon: "cherry"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "https://www.gin-vue-admin.com", Name: "https://www.gin-vue-admin.com", Component: "/", Sort: 11, Meta: Meta{Title: "官方网站", Icon: "customer-gva"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "about", Name: "about", Component: "view/about/index.vue", Sort: 12, Meta: Meta{Title: "关于我们", Icon: "office-building"}},
@@ -114,6 +115,13 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 
 		// example子菜单
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["example"], Path: "customer", Name: "customer", Component: "view/example/customer/customer.vue", Sort: 1, Meta: Meta{Title: "客户列表（资源示例）", Icon: "service"}},
+
+		// 工作流平台(workflow 自研流水线引擎)
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["workflow"], Path: "wfPipeline", Name: "WorkflowPipelineList", Component: "view/workflow/pipeline/index.vue", Sort: 1, Meta: Meta{Title: "流水线管理", Icon: "connection", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["workflow"], Path: "wfBuild", Name: "WorkflowBuildList", Component: "view/workflow/build/index.vue", Sort: 2, Meta: Meta{Title: "构建历史", Icon: "document", KeepAlive: true}},
+		// 隐藏页: 流水线编辑、构建详情(由列表/触发跳转进入, 不进菜单)
+		{MenuLevel: 1, Hidden: true, ParentId: menuNameMap["workflow"], Path: "wfPipelineEdit/:id", Name: "WorkflowPipelineEdit", Component: "view/workflow/pipeline/edit.vue", Sort: 3, Meta: Meta{Title: "编辑流水线", Icon: "edit"}},
+		{MenuLevel: 1, Hidden: true, ParentId: menuNameMap["workflow"], Path: "wfBuildDetail/:id", Name: "WorkflowBuildDetail", Component: "view/workflow/build/detail.vue", Sort: 4, Meta: Meta{Title: "构建详情", Icon: "view"}},
 
 		// systemTools子菜单(编程辅助)
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["systemTools"], Path: "autoCode", Name: "autoCode", Component: "plugin/auto/view/autoCode/index.vue", Sort: 1, Meta: Meta{Title: "代码生成器", Icon: "magic-stick"}},

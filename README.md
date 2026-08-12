@@ -60,6 +60,47 @@
 4. 本项目采用 BSL 1.1 授权。非商用、学习、评估等用途请遵循仓库许可证；如将此项目用于商用或生产环境，或需要移除版权与署名信息，请[购买授权](https://plugin.gin-vue-admin.com/license)。您需保留仓库、日志和代码中的版权声明信息。
 
 
+## 本项目定位:工作流与发版管理平台
+
+本项目基于 [gin-vue-admin](https://www.gin-vue-admin.com) 全栈框架(版权与授权见文末),在其 RBAC 权限、菜单、统一响应等基础设施之上,新增了一套**自研类 Jenkins 的声明式流水线(Pipeline)引擎**,用于工作流编排与发版管理。
+
+> 声明:本项目复用了 gin-vue-admin 框架能力并遵守其 BSL 1.1 授权与署名要求,并非 gin-vue-admin 的替代或洗稿项目。下方"工作流引擎"部分为本项目独立的业务实现。
+
+### 核心能力(工作流引擎 `workflow` 模块)
+
+借鉴 Jenkins 的核心概念与交互,自研实现(不对接真实 Jenkins):
+
+- **声明式 Pipeline**:`Pipeline → Stage → Step` 三级结构,Stage/Step 均有序,可视化编辑
+- **两种 Step 执行器**:HTTP 回调、本地 Shell 命令;在 GVA 进程内执行,可插拔接口便于扩展
+- **人工审批 gate**:Stage 可标记需审批,跑完前置 Step 后暂停为 `running-approval`,审批通过再继续后续 Stage
+- **实时状态与日志**:Stage 横条视图 + 选中 Step 日志流,状态/日志增量走 SSE 推送,历史日志分页拉取
+- **构建历史**:每次触发生成一条 Build(含 Stage/Step 运行快照),定义后续修改不影响历史记录
+- **安全边界**:HTTP 步骤默认 SSRF 防护(禁止内网/环回),Shell 步骤子进程隔离 + 超时
+
+详细职责、入口、契约与限制见 `aiDoc/modules/workflow.md`。
+
+### 快速本地启动(sqlite,无需外部 MySQL/Redis)
+
+```bash
+# 后端(默认 config.yaml 已配 sqlite, 首次需初始化)
+cd server
+go run .
+# 另起终端: 初始化数据库(建表 + 管理员 + 菜单 + 权限)
+curl -X POST http://127.0.0.1:8888/init/initdb \
+  -H "Content-Type: application/json" \
+  -d '{"adminPassword":"123456","dbType":"sqlite","dbName":"gva","dbPath":"data"}'
+# 重启后端后用 admin / 123456 登录, 左侧菜单"工作流平台"
+
+# 前端
+cd web
+npm install --registry=https://registry.npmmirror.com
+npm run dev   # http://127.0.0.1:8080
+```
+
+菜单"工作流平台 → 流水线管理"新建流水线,"触发"后进入"构建详情"查看实时 Stage/Step 状态与日志。
+
+---
+
 ## 1. 基本介绍
 
 ### 1.1 项目介绍

@@ -73,6 +73,20 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/timedTask/getRegisteredMethods", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/timedTask/alertStream", V2: "GET"},
 
+		// workflow 工作流平台(自研流水线引擎)
+		{Ptype: "p", V0: "888", V1: "/workflow/createPipeline", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/workflow/updatePipeline", V2: "PUT"},
+		{Ptype: "p", V0: "888", V1: "/workflow/deletePipeline", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/workflow/getPipelineList", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/workflow/findPipeline", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/workflow/triggerBuild", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/workflow/cancelBuild", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/workflow/approveStage", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/workflow/getBuildList", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/workflow/getBuildDetail", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/workflow/getBuildLog", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/workflow/buildStream", V2: "GET"},
+
 		{Ptype: "p", V0: "888", V1: "/api/createApi", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/api/getApiList", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/api/getApiById", V2: "POST"},
@@ -419,6 +433,20 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "9528", V1: "/autoCode/mcpStop", V2: "POST"},
 		{Ptype: "p", V0: "9528", V1: "/autoCode/mcpRoutes", V2: "POST"},
 		{Ptype: "p", V0: "9528", V1: "/user/getUserInfo", V2: "GET"},
+
+		// workflow 工作流平台(自研流水线引擎)
+		{Ptype: "p", V0: "9528", V1: "/workflow/createPipeline", V2: "POST"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/updatePipeline", V2: "PUT"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/deletePipeline", V2: "DELETE"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/getPipelineList", V2: "POST"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/findPipeline", V2: "GET"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/triggerBuild", V2: "POST"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/cancelBuild", V2: "POST"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/approveStage", V2: "POST"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/getBuildList", V2: "POST"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/getBuildDetail", V2: "GET"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/getBuildLog", V2: "GET"},
+		{Ptype: "p", V0: "9528", V1: "/workflow/buildStream", V2: "GET"},
 	}
 	if err := db.Create(&entities).Error; err != nil {
 		return ctx, errors.Wrap(err, "Casbin 表 ("+i.InitializerName()+") 数据初始化失败!")
