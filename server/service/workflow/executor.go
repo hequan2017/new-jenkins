@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -29,8 +30,9 @@ type logFunc func(stream string, text string)
 
 // StepExecutor 可插拔步骤执行器接口
 // 本期提供 http / shell 两个实现; 后续可扩展(如 docker、远程 agent)。
+// params 为本次构建的参数(键->值), 执行器在执行前对 config 做变量替换(${param.xxx})。
 type StepExecutor interface {
-	Execute(ctx context.Context, stepType string, config []byte, log logFunc) StepResult
+	Execute(ctx context.Context, stepType string, config []byte, params map[string]string, log logFunc) StepResult
 }
 
 // defaultExecutor 按类型分派到具体执行器
@@ -43,15 +45,38 @@ func newDefaultExecutor() *defaultExecutor {
 	return &defaultExecutor{http: &httpExecutor{}, shell: &shellExecutor{}}
 }
 
-func (d *defaultExecutor) Execute(ctx context.Context, stepType string, config []byte, log logFunc) StepResult {
+func (d *defaultExecutor) Execute(ctx context.Context, stepType string, config []byte, params map[string]string, log logFunc) StepResult {
+	// 变量替换: 把 config 里的 ${param.xxx} / $param.xxx 替换为实际参数值
+	expanded := expandConfig(config, params)
 	switch stepType {
 	case modelWorkflow.StepTypeHTTP:
-		return d.http.Execute(ctx, config, log)
+		return d.http.Execute(ctx, expanded, log)
 	case modelWorkflow.StepTypeShell:
-		return d.shell.Execute(ctx, config, log)
+		return d.shell.Execute(ctx, expanded, log)
 	default:
 		return StepResult{ExitCode: 1, Err: fmt.Errorf("未知 step 类型: %s", stepType)}
 	}
+}
+
+// expandConfig 对 step config 做 ${param.xxx} 变量替换。
+// 用自定义映射函数支持 ${param.name} 和 $param.name 两种写法;
+// 未知变量保留原样(不替换),避免误清空。
+func expandConfig(config []byte, params map[string]string) []byte {
+	if len(params) == 0 || len(config) == 0 {
+		return config
+	}
+	expanded := os.Expand(string(config), func(key string) string {
+		// 仅识别 param. 前缀的变量, 其它 $ 不替换(防止 shell 的 $VAR 被误替换)
+		if strings.HasPrefix(key, "param.") {
+			name := strings.TrimPrefix(key, "param.")
+			if v, ok := params[name]; ok {
+				return v
+			}
+		}
+		// 未知变量: 还原成 ${key} 形式, 不替换
+		return "${" + key + "}"
+	})
+	return []byte(expanded)
 }
 
 // ============================== HTTP 执行器 ==============================

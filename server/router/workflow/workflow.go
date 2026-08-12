@@ -14,8 +14,11 @@ func (r *WorkflowRouter) InitWorkflowRouter(Router *gin.RouterGroup) {
 		workflowRouter.POST("createPipeline", workflowApi.CreatePipeline)   // 创建流水线
 		workflowRouter.PUT("updatePipeline", workflowApi.UpdatePipeline)    // 更新流水线
 		workflowRouter.DELETE("deletePipeline", workflowApi.DeletePipeline) // 删除流水线
+		workflowRouter.POST("togglePipeline", workflowApi.TogglePipeline)   // 启用/停用
+		workflowRouter.POST("clonePipeline", workflowApi.ClonePipeline)     // 克隆流水线
 		workflowRouter.POST("triggerBuild", workflowApi.TriggerBuild)       // 触发构建
 		workflowRouter.POST("cancelBuild", workflowApi.CancelBuild)         // 取消构建
+		workflowRouter.POST("retryBuild", workflowApi.RetryBuild)           // 重跑构建
 		workflowRouter.POST("approveStage", workflowApi.ApproveStage)       // 审批 gate
 	}
 	{
@@ -26,5 +29,13 @@ func (r *WorkflowRouter) InitWorkflowRouter(Router *gin.RouterGroup) {
 		workflowRouterWithoutRecord.GET("getBuildLog", workflowApi.GetBuildLog)             // 构建日志
 		// SSE 长连接: 绝不能套 TimeoutMiddleware(参考 utils/sse/hub.go:168 约束)
 		workflowRouterWithoutRecord.GET("buildStream", workflowApi.BuildStream)             // 构建实时事件
+	}
+}
+
+// InitWebhookRouter 注册公开 webhook 触发路由(挂 PublicGroup, 免登录, 靠 secret 头校验)
+func (r *WorkflowRouter) InitWebhookRouter(PublicRouter *gin.RouterGroup) {
+	publicWebhook := PublicRouter.Group("webhook")
+	{
+		publicWebhook.POST("trigger/:id", workflowApi.WebhookTrigger) // webhook 触发
 	}
 }

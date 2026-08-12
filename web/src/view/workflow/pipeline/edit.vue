@@ -21,6 +21,25 @@
           <el-option label="Webhook" value="webhook" />
         </el-select>
       </el-form-item>
+      <el-form-item v-if="form.triggerType === 'schedule'" label="cron 表达式">
+        <el-input
+          v-model="form.spec"
+          placeholder="如 0 * * * * 或 @hourly"
+          class="!w-64"
+        />
+        <el-checkbox v-model="form.withSeconds" class="ml-3">含秒位</el-checkbox>
+      </el-form-item>
+      <el-form-item v-if="form.triggerType === 'webhook' && form.webhookSecret" label="Webhook">
+        <div class="flex items-center gap-2">
+          <el-input
+            :model-value="`POST {{baseUrl}}/webhook/trigger/${form.ID || '{id}'}`"
+            readonly
+            class="!w-[360px]"
+          />
+          <el-input v-model="form.webhookSecret" readonly class="!w-56" />
+          <el-button text @click="copyWebhookSecret">复制密钥</el-button>
+        </div>
+      </el-form-item>
       <el-form-item label="启用">
         <el-switch v-model="form.enabled" />
       </el-form-item>
@@ -28,6 +47,47 @@
         <el-input v-model="form.description" type="textarea" :rows="2" class="!w-[480px]" />
       </el-form-item>
     </el-form>
+
+    <div class="flex items-center justify-between mt-2 mb-2">
+      <span class="text-base font-medium">参数定义</span>
+      <el-button type="primary" plain icon="plus" size="small" @click="addParam">添加参数</el-button>
+    </div>
+    <el-table :data="form.paramFields" size="small" class="mb-4">
+      <el-table-column label="参数名" width="140">
+        <template #default="{ row }">
+          <el-input v-model="row.name" size="small" placeholder="如 env" />
+        </template>
+      </el-table-column>
+      <el-table-column label="展示名" width="140">
+        <template #default="{ row }">
+          <el-input v-model="row.label" size="small" placeholder="如 环境" />
+        </template>
+      </el-table-column>
+      <el-table-column label="类型" width="110">
+        <template #default="{ row }">
+          <el-select v-model="row.type" size="small">
+            <el-option label="string" value="string" />
+            <el-option label="number" value="number" />
+            <el-option label="bool" value="bool" />
+          </el-select>
+        </template>
+      </el-table-column>
+      <el-table-column label="必填" width="70">
+        <template #default="{ row }">
+          <el-checkbox v-model="row.required" />
+        </template>
+      </el-table-column>
+      <el-table-column label="默认值" min-width="140">
+        <template #default="{ row }">
+          <el-input v-model="row.default" size="small" />
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="80">
+        <template #default="{ $index }">
+          <el-button type="danger" link size="small" icon="delete" @click="form.paramFields.splice($index, 1)">删</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
 
     <div class="flex items-center justify-between mt-2 mb-2">
       <span class="text-base font-medium">阶段与步骤</span>
@@ -46,6 +106,7 @@
             <el-input v-model="stage.name" placeholder="阶段名称" class="!w-40" @click.stop />
             <el-checkbox v-model="stage.approval" @click.stop>需审批</el-checkbox>
             <el-checkbox v-model="stage.continueOnError" @click.stop>失败继续</el-checkbox>
+            <el-checkbox v-model="stage.parallel" @click.stop>步骤并行</el-checkbox>
             <el-button type="danger" link icon="delete" @click="removeStage(si)">删阶段</el-button>
           </div>
         </template>
@@ -114,12 +175,17 @@
     ID: 0,
     name: '',
     triggerType: 'manual',
+    spec: '',
+    withSeconds: false,
+    webhookSecret: '',
     enabled: true,
     description: '',
-    paramSchema: [],
+    paramFields: [], // 参数定义(前端编辑用, 提交时序列化为 paramSchema)
     stages: []
   })
   const activeStages = ref([])
+
+  const baseUrl = window.location.origin
 
   // 本地自增 id, 仅供前端 row-key / 排序用, 提交时不发送
   let localIdSeed = 0
@@ -132,12 +198,30 @@
         ? '{"command":"echo hello","timeoutSec":600}'
         : '先选择类型'
 
+  const addParam = () => {
+    form.paramFields.push({
+      name: '',
+      label: '',
+      type: 'string',
+      required: false,
+      default: ''
+    })
+  }
+
+  const copyWebhookSecret = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(form.webhookSecret)
+      ElMessage.success('密钥已复制')
+    }
+  }
+
   const addStage = () => {
     form.stages.push({
       name: '',
       order: form.stages.length + 1,
       approval: false,
       continueOnError: false,
+      parallel: false,
       steps: []
     })
     activeStages.value.push(form.stages.length - 1)
@@ -185,6 +269,7 @@
       order: s.order,
       approval: !!s.approval,
       continueOnError: !!s.continueOnError,
+      parallel: !!s.parallel,
       steps: s.steps.map((sp) => {
         let config = null
         try {
@@ -204,9 +289,12 @@
       ID: form.ID,
       name: form.name,
       triggerType: form.triggerType,
+      spec: form.spec,
+      withSeconds: form.withSeconds,
+      webhookSecret: form.webhookSecret,
       enabled: form.enabled,
       description: form.description,
-      paramSchema: form.paramSchema,
+      paramSchema: form.paramFields.filter((f) => f.name),
       stages
     }
   }
@@ -254,14 +342,25 @@
       form.ID = d.ID
       form.name = d.name
       form.triggerType = d.triggerType
+      form.spec = d.spec || ''
+      form.withSeconds = !!d.withSeconds
+      form.webhookSecret = d.webhookSecret || ''
       form.enabled = d.enabled
       form.description = d.description
-      form.paramSchema = d.paramSchema || []
+      // paramSchema(JSON) -> paramFields(可编辑数组)
+      form.paramFields = (d.paramSchema || []).map((f) => ({
+        name: f.name || '',
+        label: f.label || '',
+        type: f.type || 'string',
+        required: !!f.required,
+        default: f.default || ''
+      }))
       form.stages = (d.stages || []).map((s) => ({
         name: s.name,
         order: s.order,
         approval: s.approval,
         continueOnError: s.continueOnError,
+        parallel: !!s.parallel,
         steps: (s.steps || []).map((sp) => ({
           localId: nextLocalId(),
           name: sp.name,

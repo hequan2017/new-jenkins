@@ -137,6 +137,59 @@ func (a *WorkflowApi) FindPipeline(c *gin.Context) {
 	response.OkWithDetailed(p, "获取成功", c)
 }
 
+// TogglePipeline
+// @Tags      Workflow
+// @Summary   启用/停用流水线(联动定时调度)
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      request.TogglePipeline                                       true  "流水线ID与启用状态"
+// @Success   200   {object}  response.Response{msg=string}                                "操作成功"
+// @Router    /workflow/togglePipeline [post]
+func (a *WorkflowApi) TogglePipeline(c *gin.Context) {
+	var req struct {
+		ID      uint `json:"id"`
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	if err := pipelineService.TogglePipeline(c.Request.Context(), req.ID, req.Enabled); err != nil {
+		logger.WithCtx(c.Request.Context()).Mod("workflow").Err(err).Error("切换流水线状态失败!")
+		response.FailWithMessage("操作失败: "+err.Error(), c)
+		return
+	}
+	response.OkWithMessage("操作成功", c)
+}
+
+// ClonePipeline
+// @Tags      Workflow
+// @Summary   克隆流水线(深拷贝阶段/步骤, 重置ID)
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      request.ClonePipeline                                        true  "源流水线ID与可选新名称"
+// @Success   200   {object}  response.Response{data=object,msg=string}                    "克隆成功, 返回新流水线ID"
+// @Router    /workflow/clonePipeline [post]
+func (a *WorkflowApi) ClonePipeline(c *gin.Context) {
+	var req struct {
+		ID      uint   `json:"id"`
+		NewName string `json:"newName"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	newID, err := pipelineService.ClonePipeline(c.Request.Context(), req.ID, req.NewName)
+	if err != nil {
+		logger.WithCtx(c.Request.Context()).Mod("workflow").Err(err).Error("克隆流水线失败!")
+		response.FailWithMessage("克隆失败: "+err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{"id": newID}, "克隆成功", c)
+}
+
 // ============================== 构建 ==============================
 
 // TriggerBuild
@@ -185,6 +238,31 @@ func (a *WorkflowApi) CancelBuild(c *gin.Context) {
 		return
 	}
 	response.OkWithMessage("取消成功", c)
+}
+
+// RetryBuild
+// @Tags      Workflow
+// @Summary   重跑历史构建(复用原参数, 新建一次构建)
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      request.GetById                                             true  "原构建ID"
+// @Success   200   {object}  response.Response{data=object,msg=string}                   "已重跑, 返回新 buildId"
+// @Router    /workflow/retryBuild [post]
+func (a *WorkflowApi) RetryBuild(c *gin.Context) {
+	var req commonReq.GetById
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	uid := utils.GetUserID(c)
+	buildID, err := buildService.RetryBuild(c.Request.Context(), req.Uint(), uid)
+	if err != nil {
+		logger.WithCtx(c.Request.Context()).Mod("workflow").Err(err).Error("重跑构建失败!")
+		response.FailWithMessage("重跑失败: "+err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{"buildId": buildID}, "已重跑", c)
 }
 
 // ApproveStage

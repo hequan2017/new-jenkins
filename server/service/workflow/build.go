@@ -2,8 +2,10 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
@@ -39,6 +41,13 @@ func (s *BuildService) TriggerBuild(ctx context.Context, pipelineID uint, params
 	if len(p.Stages) == 0 {
 		return 0, errors.New("流水线未配置任何阶段")
 	}
+
+	// 1.5 参数校验: 对照 ParamSchema 检查必填/类型, 缺省用 Default 回填
+	validParams, err := validateAndFillParams(p.ParamSchema, params)
+	if err != nil {
+		return 0, err
+	}
+	params = validParams
 
 	// 2. 计算 buildNo(同流水线下自增)
 	buildNo, err := s.nextBuildNo(ctx, pipelineID)
@@ -184,6 +193,20 @@ func (s *BuildService) CancelBuild(ctx context.Context, id uint) error {
 	return nil
 }
 
+// RetryBuild 重跑历史构建: 取原 build 的 pipelineID + params, 触发一次新构建(manual 触发)
+func (s *BuildService) RetryBuild(ctx context.Context, buildID uint, triggerBy uint) (uint, error) {
+	var build workflow.PipelineBuild
+	if err := global.GVA_DB.WithContext(ctx).First(&build, buildID).Error; err != nil {
+		return 0, fmt.Errorf("构建不存在: %w", err)
+	}
+	// 解析历史 params
+	var params []workflow.ParamValue
+	if len(build.Params) > 0 {
+		_ = json.Unmarshal(build.Params, &params)
+	}
+	return s.TriggerBuild(ctx, build.PipelineID, params, workflow.TriggerManual, triggerBy)
+}
+
 // ApproveStage 审批 gate: approve=true 继续下一阶段, false 标记构建失败
 func (s *BuildService) ApproveStage(ctx context.Context, req workflowReq.ApproveStageReq) error {
 	var build workflow.PipelineBuild
@@ -222,4 +245,79 @@ func (s *BuildService) setBuildStatusIfIn(ctx context.Context, id uint, newStatu
 // logErr 引擎内部统一记错(避免在每个分支重复写 logger 调用)
 func logErr(buildID uint, msg string, err error) {
 	logger.Bg().Mod("workflow").Err(err).Error(fmt.Sprintf("build %d: %s", buildID, msg))
+}
+
+// validateAndFillParams 对照 ParamSchema 校验入参: 必填检查、类型宽松校验、缺省用 Default 回填。
+// 返回规整后的 params(含回填的默认值)。ParamSchema 为空时直接放行(无参流水线)。
+func validateAndFillParams(schemaJSON []byte, params []workflow.ParamValue) ([]workflow.ParamValue, error) {
+	if len(schemaJSON) == 0 {
+		return params, nil
+	}
+	var schema []workflow.ParamField
+	if err := json.Unmarshal(schemaJSON, &schema); err != nil {
+		return nil, errors.New("流水线参数定义(paramSchema)格式错误")
+	}
+	// 入参转 map 便于查找
+	inputMap := make(map[string]string, len(params))
+	for _, p := range params {
+		inputMap[p.Name] = p.Value
+	}
+	// 对照 schema 逐项校验 + 回填默认值
+	result := make([]workflow.ParamValue, 0, len(schema))
+	for _, f := range schema {
+		v, ok := inputMap[f.Name]
+		if !ok || v == "" {
+			if f.Required && f.Default == "" {
+				return nil, fmt.Errorf("缺少必填参数: %s", f.Name)
+			}
+			v = f.Default // 缺省用默认值(可能为空)
+		}
+		// 类型宽松校验: number 要求能解析为数字, bool 要求 true/false
+		if v != "" {
+			if err := checkParamType(f.Type, v); err != nil {
+				return nil, fmt.Errorf("参数 %s 类型不合法: %w", f.Name, err)
+			}
+		}
+		result = append(result, workflow.ParamValue{Name: f.Name, Value: v})
+	}
+	return result, nil
+}
+
+// checkParamType 按 ParamField.Type 做宽松类型校验
+func checkParamType(typ, v string) error {
+	switch typ {
+	case "", "string":
+		return nil
+	case "number":
+		if _, err := strconv.ParseFloat(v, 64); err != nil {
+			return fmt.Errorf("期望数字, 实际 %q", v)
+		}
+	case "bool":
+		if v != "true" && v != "false" {
+			return fmt.Errorf("期望 bool(true/false), 实际 %q", v)
+		}
+	default:
+		return fmt.Errorf("未知参数类型 %s", typ)
+	}
+	return nil
+}
+
+// parseNumber 别名, 保留语义(实际由 checkParamType 内联 strconv 实现)
+func parseNumber(v string) (float64, error) { return strconv.ParseFloat(v, 64) }
+
+// decodeBuildParams 把 build.Params([]ParamValue JSON) 解析为 map[name]value,
+// 供执行器做 ${param.xxx} 变量替换。解析失败返回空 map(降级,不阻断执行)。
+func decodeBuildParams(raw []byte) map[string]string {
+	out := map[string]string{}
+	if len(raw) == 0 {
+		return out
+	}
+	var pvs []workflow.ParamValue
+	if err := json.Unmarshal(raw, &pvs); err != nil {
+		return out
+	}
+	for _, p := range pvs {
+		out[p.Name] = p.Value
+	}
+	return out
 }

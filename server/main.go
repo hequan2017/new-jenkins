@@ -49,5 +49,6 @@ func initializeSystem() {
 		initialize.RegisterDataScopeCallbacks() // 注册数据权限 GORM 回调
 		initialize.RegisterTables()             // 初始化表
 		initialize.LoadTimedTasks()             // 从 DB 恢复定时任务调度(必须在建表后)
+		initialize.LoadWorkflowSchedules()      // 从 DB 恢复流水线定时调度(必须在建表后)
 	}
 }

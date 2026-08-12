@@ -50,9 +50,17 @@
         <el-table-column label="结束时间" width="170">
           <template #default="scope">{{ formatDate(scope.row.finishedAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="scope">
             <el-button type="primary" link icon="view" @click="goDetail(scope.row)">详情</el-button>
+            <el-button
+              v-if="canRetry(scope.row.status)"
+              type="primary"
+              link
+              icon="RefreshRight"
+              @click="onRetry(scope.row)"
+            >重跑</el-button
+            >
             <el-button
               v-if="canCancel(scope.row.status)"
               type="danger"
@@ -88,6 +96,7 @@
     getBuildList,
     getPipelineList,
     cancelBuild,
+    retryBuild,
     buildStatusMap,
     buildStatusLabel,
     buildStatusType
@@ -110,6 +119,7 @@
   })
 
   const canCancel = (status) => ['running', 'pending', 'running-approval'].includes(status)
+  const canRetry = (status) => ['failed', 'canceled', 'success'].includes(status)
 
   const getList = async () => {
     const res = await getBuildList({
@@ -158,6 +168,14 @@
     if (res.code === 0) {
       ElMessage.success('已取消')
       getList()
+    }
+  }
+
+  const onRetry = async (row) => {
+    const res = await retryBuild({ id: row.ID })
+    if (res.code === 0) {
+      ElMessage.success('已重跑')
+      router.push({ name: 'WorkflowBuildDetail', params: { id: res.data.buildId } })
     }
   }
 

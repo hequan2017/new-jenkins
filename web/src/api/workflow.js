@@ -26,6 +26,22 @@ export const deletePipeline = (data) => {
   })
 }
 
+export const togglePipeline = (data) => {
+  return service({
+    url: '/workflow/togglePipeline',
+    method: 'post',
+    data
+  })
+}
+
+export const clonePipeline = (data) => {
+  return service({
+    url: '/workflow/clonePipeline',
+    method: 'post',
+    data
+  })
+}
+
 export const getPipelineList = (data) => {
   return service({
     url: '/workflow/getPipelineList',
@@ -55,6 +71,14 @@ export const triggerBuild = (data) => {
 export const cancelBuild = (data) => {
   return service({
     url: '/workflow/cancelBuild',
+    method: 'post',
+    data
+  })
+}
+
+export const retryBuild = (data) => {
+  return service({
+    url: '/workflow/retryBuild',
     method: 'post',
     data
   })

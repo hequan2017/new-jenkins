@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
@@ -67,6 +68,9 @@ func (e *Engine) Run(ctx context.Context, buildID uint, triggerBy uint) {
 		e.publishEvent(triggerBy, name, payload)
 	}
 
+	// 解析 build.Params 为 map, 透传给执行器做 ${param.xxx} 变量替换
+	params := decodeBuildParams(detail.Build.Params)
+
 	publish("build:status", map[string]any{"buildId": buildID, "status": detail.Build.Status})
 
 	stageFailed := false
@@ -86,22 +90,28 @@ func (e *Engine) Run(ctx context.Context, buildID uint, triggerBy uint) {
 		e.updateStage(st)
 		publish("stage:status", st)
 
-		// 执行该 stage 下所有 step(串行)
+		// 执行该 stage 下所有 step
+		// 串行(默认): 顺序跑, 失败即终止当前 stage 后续 step
+		// 并行(Stage.Parallel=true): 并发跑所有 step, 收集失败数
+		stageParallel := e.stageParallelMode(st.StageID)
 		stepFailed := false
-		for j := range detail.Steps {
-			sp := &detail.Steps[j]
-			if sp.StageID != st.ID {
-				continue
-			}
-			if e.isCanceled(buildID) {
-				e.finishBuild(buildID, modelWorkflow.BuildStatusCanceled, "已取消", triggerBy)
-				return
-			}
-
-			res := e.runStep(ctx, buildID, sp, publish)
-			if res.Err != nil {
-				stepFailed = true
-				break // step 失败即终止当前 stage 后续 step
+		if stageParallel {
+			stepFailed = e.runStepsParallel(ctx, buildID, st.ID, detail.Steps, params, publish)
+		} else {
+			for j := range detail.Steps {
+				sp := &detail.Steps[j]
+				if sp.StageID != st.ID {
+					continue
+				}
+				if e.isCanceled(buildID) {
+					e.finishBuild(buildID, modelWorkflow.BuildStatusCanceled, "已取消", triggerBy)
+					return
+				}
+				res := e.runStep(ctx, buildID, sp, params, publish)
+				if res.Err != nil {
+					stepFailed = true
+					break // step 失败即终止当前 stage 后续 step
+				}
 			}
 		}
 
@@ -164,7 +174,8 @@ func (e *Engine) Run(ctx context.Context, buildID uint, triggerBy uint) {
 }
 
 // runStep 执行单个 step: 状态机 pending→running→success/failed, 日志落库+SSE
-func (e *Engine) runStep(ctx context.Context, buildID uint, sp *modelWorkflow.PipelineBuildStep, publish func(string, any)) StepResult {
+// params 透传给执行器做 ${param.xxx} 变量替换
+func (e *Engine) runStep(ctx context.Context, buildID uint, sp *modelWorkflow.PipelineBuildStep, params map[string]string, publish func(string, any)) StepResult {
 	now := time.Now()
 	sp.Status = modelWorkflow.BuildStatusRunning
 	sp.StartedAt = &now
@@ -189,7 +200,7 @@ func (e *Engine) runStep(ctx context.Context, buildID uint, sp *modelWorkflow.Pi
 		})
 	}
 
-	res := e.executor.Execute(ctx, sp.SnapshotType, config, logFn)
+	res := e.executor.Execute(ctx, sp.SnapshotType, config, params, logFn)
 	end := time.Now()
 	sp.FinishedAt = &end
 	sp.ExitCode = &res.ExitCode
@@ -276,6 +287,40 @@ func (e *Engine) stageContinueOnError(stageDefID uint) bool {
 	return st.ContinueOnError
 }
 
+// stageParallelMode 查定义: 该 stage 内 step 是否并行执行
+func (e *Engine) stageParallelMode(stageDefID uint) bool {
+	var st modelWorkflow.PipelineStage
+	if err := global.GVA_DB.Select("parallel").First(&st, stageDefID).Error; err != nil {
+		return false
+	}
+	return st.Parallel
+}
+
+// runStepsParallel 并发执行某 stage 下所有 step, 返回是否有失败。
+// 并行模式下所有 step 都会跑完(无法像串行那样中途 break); 失败与否由调用方按
+// ContinueOnError 决定。日志 seq 由 runStep 内局部变量保证单 step 内有序,
+// 跨 step 的日志交错是并行模式的固有行为(每条日志带 stepId 可区分)。
+func (e *Engine) runStepsParallel(ctx context.Context, buildID, stageID uint, steps []modelWorkflow.PipelineBuildStep, params map[string]string, publish func(string, any)) bool {
+	var wg sync.WaitGroup
+	var failed int32
+	for j := range steps {
+		sp := &steps[j]
+		if sp.StageID != stageID {
+			continue
+		}
+		wg.Add(1)
+		go func(s *modelWorkflow.PipelineBuildStep) {
+			defer wg.Done()
+			res := e.runStep(ctx, buildID, s, params, publish)
+			if res.Err != nil {
+				atomic.AddInt32(&failed, 1)
+			}
+		}(sp)
+	}
+	wg.Wait()
+	return failed > 0
+}
+
 func (e *Engine) isCanceled(buildID uint) bool {
 	var b modelWorkflow.PipelineBuild
 	if err := global.GVA_DB.Select("status").First(&b, buildID).Error; err != nil {
@@ -298,7 +343,32 @@ func (e *Engine) finishBuild(buildID uint, status, msg string, triggerBy uint) {
 			"finished_at": now,
 		})
 	e.publishEvent(triggerBy, "build:status", map[string]any{"buildId": buildID, "status": status, "message": msg})
+	// 失败/取消时, 向管理员角色(888) SSE 定向告警(离线静默丢弃, 不阻塞)
+	if status == modelWorkflow.BuildStatusFailed || status == modelWorkflow.BuildStatusCanceled {
+		e.alertFailure(buildID, status, msg)
+	}
 	e.cleanupApproval(buildID)
+}
+
+// alertFailure 失败告警: 查 888 角色用户, 经本体 SSE Hub 定向推送(仿 timedTask alertFailure)
+func (e *Engine) alertFailure(buildID uint, status, msg string) {
+	const alertAuthorityID = 888
+	var ids []uint
+	if err := global.GVA_DB.Table("sys_user_authority").
+		Where("sys_authority_authority_id = ?", alertAuthorityID).
+		Pluck("sys_user_id", &ids).Error; err != nil {
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"buildId": buildID,
+		"status":  status,
+		"error":   msg,
+		"time":    time.Now().Format(time.RFC3339),
+	})
+	sse.Default().PublishToUsers(ids, sse.Event{Name: "workflow:alert", Data: string(payload)})
 }
 
 func (e *Engine) failBuild(buildID uint, msg string, triggerBy uint) {

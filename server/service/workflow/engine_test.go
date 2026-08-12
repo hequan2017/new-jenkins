@@ -19,7 +19,7 @@ type fakeExecutor struct {
 	approvalHook func() // 执行到某 step 时阻塞, 用于测试审批 gate
 }
 
-func (f *fakeExecutor) Execute(ctx context.Context, stepType string, config []byte, log logFunc) StepResult {
+func (f *fakeExecutor) Execute(ctx context.Context, stepType string, config []byte, params map[string]string, log logFunc) StepResult {
 	f.mu.Lock()
 	f.calls = append(f.calls, string(config))
 	name := string(config)

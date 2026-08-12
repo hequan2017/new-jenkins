@@ -5,4 +5,5 @@ package workflow
 type ServiceGroup struct {
 	PipelineService
 	BuildService
+	WorkflowScheduleService
 }

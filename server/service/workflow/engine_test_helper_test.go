@@ -2,28 +2,60 @@ package workflow
 
 import (
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/internal/testutil"
 	modelWorkflow "github.com/flipped-aurora/gin-vue-admin/server/model/workflow"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 var memDBCounter uint32
 
 // initMemoryDB 建共享内存库 + AutoMigrate workflow 全部表 + 赋值 global.GVA_DB(并 cleanup 还原)
-// 注意: Engine 测试跨 goroutine 读写同一内存库。glebarez/sqlite 底层为单连接池, 多 goroutine
-// 共享同一份 :memory: 数据; 但单连接会在审批等待 goroutine 占用时阻塞查询, 因此审批测试
-// 用 NotifyApproval 唤醒后 Run 很快释放连接, 测试侧轮询容忍短时阻塞。
+// 注意: Engine 测试跨 goroutine 读写同一内存库。glebarez 的 ":memory:" 默认每连接独立库,
+// 跨 goroutine 会拿到空库。这里用 "file:<uniq>?mode=memory&cache=shared" 让多连接共享同一份
+// 内存库, 避免单连接池在审批等待时被 Run goroutine 占用而阻塞主 goroutine 的轮询查询。
+// 同时 migrate sys_user_authority 表(失败告警 alertFailure 会查它), 无该表会让 gorm 报错。
 func initMemoryDB(t *testing.T) error {
-	_ = testutil.NewMemoryDB(t,
+	dsn := "file:wftest" + uitoa(atomic.AddUint32(&memDBCounter, 1)) + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open shared memory db: %v", err)
+	}
+	if err := db.AutoMigrate(
 		&modelWorkflow.Pipeline{}, &modelWorkflow.PipelineStage{}, &modelWorkflow.PipelineStep{},
 		&modelWorkflow.PipelineBuild{}, &modelWorkflow.PipelineBuildStage{},
 		&modelWorkflow.PipelineBuildStep{}, &modelWorkflow.PipelineBuildLog{},
-	)
+	); err != nil {
+		t.Fatalf("automigrate: %v", err)
+	}
+	// alertFailure 查询 sys_user_authority 表, 建空表避免 "no such table"
+	if err := db.Exec(`CREATE TABLE IF NOT EXISTS sys_user_authority (
+		sys_user_id bigint, sys_authority_authority_id bigint, PRIMARY KEY(sys_user_id, sys_authority_authority_id)
+	)`).Error; err != nil {
+		t.Fatalf("create sys_user_authority: %v", err)
+	}
+	old := global.GVA_DB
+	global.GVA_DB = db
+	t.Cleanup(func() { global.GVA_DB = old })
 	_ = testutil.InitNopLogger()
 	return nil
+}
+
+func uitoa(n uint32) string {
+	if n == 0 {
+		return "0"
+	}
+	buf := []byte{}
+	for n > 0 {
+		buf = append([]byte{byte('0' + n%10)}, buf...)
+		n /= 10
+	}
+	return string(buf)
 }
 
 // gvaCreate / gvaFirst: 测试内直接走 global.GVA_DB, 不走 service 层(避免循环)

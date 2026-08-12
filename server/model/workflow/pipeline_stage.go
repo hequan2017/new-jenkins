@@ -9,11 +9,12 @@ import (
 // 会把 Build 置于 running-approval 状态, 等人工 approveStage 接口唤醒再继续下一 Stage。
 type PipelineStage struct {
 	global.GVA_MODEL
-	PipelineID    uint   `json:"pipelineId" form:"pipelineId" gorm:"index;column:pipeline_id;comment:所属流水线ID"`
-	Name          string `json:"name" form:"name" gorm:"column:name;comment:阶段名称"`
-	Order         int    `json:"order" form:"order" gorm:"column:sort_order;comment:阶段顺序(升序)"`
-	Approval      bool   `json:"approval" form:"approval" gorm:"column:approval;comment:该阶段是否需要人工审批 gate"`
-	ContinueOnError bool `json:"continueOnError" form:"continueOnError" gorm:"column:continue_on_error;comment:阶段内 Step 失败后是否继续后续阶段"`
+	PipelineID      uint   `json:"pipelineId" form:"pipelineId" gorm:"index;column:pipeline_id;comment:所属流水线ID"`
+	Name            string `json:"name" form:"name" gorm:"column:name;comment:阶段名称"`
+	Order           int    `json:"order" form:"order" gorm:"column:sort_order;comment:阶段顺序(升序)"`
+	Approval        bool   `json:"approval" form:"approval" gorm:"column:approval;comment:该阶段是否需要人工审批 gate"`
+	ContinueOnError bool   `json:"continueOnError" form:"continueOnError" gorm:"column:continue_on_error;comment:阶段内 Step 失败后是否继续后续阶段"`
+	Parallel        bool   `json:"parallel" form:"parallel" gorm:"column:parallel;comment:该阶段内 Step 是否并行执行"`
 	// Steps 关联, 查询时 Preload; form:"-" 避免 query 绑定递归
 	Steps []PipelineStep `json:"steps" form:"-" gorm:"foreignKey:StageID;references:ID;constraint:OnDelete:CASCADE"`
 }

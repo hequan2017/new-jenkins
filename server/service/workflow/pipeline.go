@@ -2,9 +2,12 @@ package workflow
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/workflow"
@@ -22,13 +25,19 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, p *workflow.Pipeli
 	if err := s.validatePipeline(p); err != nil {
 		return err
 	}
+	s.fillWebhookSecret(p)
 	// 级联创建: GORM 默认对 has-many 关联在 Create 时一并处理
-	return global.GVA_DB.WithContext(ctx).Create(p).Error
+	if err := global.GVA_DB.WithContext(ctx).Create(p).Error; err != nil {
+		return err
+	}
+	// schedule 类型: 创建后即时注册调度
+	(&WorkflowScheduleService{}).SchedulePipeline(*p)
+	return nil
 }
 
 // UpdatePipeline 全量覆盖式更新(含 Stage/Step 树)
 // 用事务保证一致性: 替换 Stages/Steps, 再更新 Pipeline 本身。
-// 归属列(dept_id/created_by)本表没有, 无需 Omit。
+// 归属列(dept_id/created_by)本表没有, 无需 Omit。WebhookSecret 已存在时不覆盖。
 func (s *PipelineService) UpdatePipeline(ctx context.Context, p *workflow.Pipeline) error {
 	if p.ID == 0 {
 		return errors.New("pipeline id 不能为空")
@@ -36,8 +45,18 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, p *workflow.Pipeli
 	if err := s.validatePipeline(p); err != nil {
 		return err
 	}
+	// webhook secret: 已存在则保留(更新时前端可能不回传), 为空且是 webhook 类型则补生成
+	if p.WebhookSecret == "" && p.TriggerType == workflow.TriggerWebhook {
+		var old workflow.Pipeline
+		_ = global.GVA_DB.Select("webhook_secret").First(&old, p.ID).Error
+		if old.WebhookSecret != "" {
+			p.WebhookSecret = old.WebhookSecret
+		} else {
+			p.WebhookSecret = newWebhookSecret()
+		}
+	}
 
-	return global.GVA_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := global.GVA_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 先清旧 Stage(级联清 Step, 靠外键 OnDelete:CASCADE), 再写新树
 		if err := tx.Where("pipeline_id = ?", p.ID).Delete(&workflow.PipelineStage{}).Error; err != nil {
 			return err
@@ -47,12 +66,79 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, p *workflow.Pipeli
 			return err
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// 更新后重调度(覆盖 spec/enabled/triggerType 变更)
+	(&WorkflowScheduleService{}).SchedulePipeline(*p)
+	return nil
 }
 
 // DeletePipeline 删除流水线(级联删 Stage/Step 定义; 已有 Build 历史保留)
 func (s *PipelineService) DeletePipeline(ctx context.Context, id uint) error {
-	return global.GVA_DB.WithContext(ctx).Delete(&workflow.Pipeline{}, id).Error
+	if err := global.GVA_DB.WithContext(ctx).Delete(&workflow.Pipeline{}, id).Error; err != nil {
+		return err
+	}
+	// 清除调度
+	global.GVA_Timer.Clear(pipelineCronName(id))
+	return nil
+}
+
+// TogglePipeline 启用/停用流水线(联动调度)
+func (s *PipelineService) TogglePipeline(ctx context.Context, id uint, enabled bool) error {
+	if err := global.GVA_DB.WithContext(ctx).Model(&workflow.Pipeline{}).
+		Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
+		return err
+	}
+	var p workflow.Pipeline
+	if err := global.GVA_DB.WithContext(ctx).First(&p, id).Error; err != nil {
+		return err
+	}
+	(&WorkflowScheduleService{}).SchedulePipeline(p)
+	return nil
+}
+
+// ClonePipeline 克隆流水线: 深拷贝定义树(Stage/Step), 重置 ID, 名称加 "-copy" 后缀
+func (s *PipelineService) ClonePipeline(ctx context.Context, id uint, newName string) (uint, error) {
+	src, err := s.FindPipeline(ctx, id)
+	if err != nil {
+		return 0, fmt.Errorf("源流水线不存在: %w", err)
+	}
+	if newName == "" {
+		newName = src.Name + "-copy"
+	}
+	// 构造新定义: 重置所有 ID, 保留结构
+	clone := workflow.Pipeline{
+		Name:        newName,
+		Description: src.Description,
+		TriggerType: workflow.TriggerManual, // 克隆后默认手动, 避免重复定时
+		ParamSchema: src.ParamSchema,
+		Enabled:     src.Enabled,
+	}
+	clone.Stages = make([]workflow.PipelineStage, 0, len(src.Stages))
+	for _, st := range src.Stages {
+		ns := workflow.PipelineStage{
+			Name:            st.Name,
+			Order:           st.Order,
+			Approval:        st.Approval,
+			ContinueOnError: st.ContinueOnError,
+			Parallel:        st.Parallel,
+		}
+		ns.Steps = make([]workflow.PipelineStep, 0, len(st.Steps))
+		for _, sp := range st.Steps {
+			ns.Steps = append(ns.Steps, workflow.PipelineStep{
+				Name:   sp.Name,
+				Type:   sp.Type,
+				Config: sp.Config,
+				Order:  sp.Order,
+			})
+		}
+		clone.Stages = append(clone.Stages, ns)
+	}
+	if err := s.CreatePipeline(ctx, &clone); err != nil {
+		return 0, err
+	}
+	return clone.ID, nil
 }
 
 // FindPipeline 查流水线详情(含 Stage/Step 树)
@@ -106,6 +192,15 @@ func (s *PipelineService) validatePipeline(p *workflow.Pipeline) error {
 	default:
 		return fmt.Errorf("triggerType 必须为 %s/%s/%s", workflow.TriggerManual, workflow.TriggerSchedule, workflow.TriggerWebhook)
 	}
+	// schedule 触发必须有合法 cron 表达式
+	if p.TriggerType == workflow.TriggerSchedule {
+		if p.Spec == "" {
+			return errors.New("定时触发(schedule)必须填写 cron 表达式(spec)")
+		}
+		if err := ValidateSpec(p.Spec, p.WithSeconds); err != nil {
+			return err
+		}
+	}
 	nameSeen := map[string]bool{}
 	for i := range p.Stages {
 		st := &p.Stages[i]
@@ -154,4 +249,21 @@ func (s *PipelineService) normalizeParamSchema(p *workflow.Pipeline) error {
 func mustJSON(v interface{}) datatypes.JSON {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+// fillWebhookSecret webhook 类型流水线若未设 secret, 自动生成(32 字节随机十六进制)
+func (s *PipelineService) fillWebhookSecret(p *workflow.Pipeline) {
+	if p.TriggerType == workflow.TriggerWebhook && p.WebhookSecret == "" {
+		p.WebhookSecret = newWebhookSecret()
+	}
+}
+
+// newWebhookSecret 生成 32 字节随机十六进制字符串
+func newWebhookSecret() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// 极端情况: 用时间戳兜底(不应发生)
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }

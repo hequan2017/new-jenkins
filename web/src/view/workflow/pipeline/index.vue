@@ -42,10 +42,18 @@
         <el-table-column label="创建时间" width="170">
           <template #default="scope">{{ formatDate(scope.row.CreatedAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="420" fixed="right">
           <template #default="scope">
             <el-button type="primary" link icon="VideoPlay" @click="onTrigger(scope.row)">触发</el-button>
+            <el-button
+              type="primary"
+              link
+              :icon="scope.row.enabled ? 'CircleClose' : 'Open'"
+              @click="onToggle(scope.row)"
+            >{{ scope.row.enabled ? '停用' : '启用' }}</el-button
+            >
             <el-button type="primary" link icon="edit" @click="openEdit(scope.row.ID)">编辑</el-button>
+            <el-button type="primary" link icon="CopyDocument" @click="onClone(scope.row)">克隆</el-button>
             <el-button
               type="primary"
               link
@@ -70,6 +78,33 @@
         />
       </div>
     </div>
+
+    <!-- 参数收集对话框: 触发带参数的流水线时弹出 -->
+    <el-dialog
+      v-model="paramDialogVisible"
+      :title="`触发参数 - ${paramNameCache}`"
+      width="480px"
+    >
+      <el-form label-width="120px">
+        <el-form-item
+          v-for="p in paramForm"
+          :key="p.name"
+          :label="p.label"
+          :required="p.required"
+        >
+          <el-input
+            v-if="p.type !== 'bool'"
+            v-model="p.value"
+            :placeholder="p.required ? '必填' : ''"
+          />
+          <el-switch v-else v-model="p.value" active-value="true" inactive-value="false" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="onParamCancel">取消</el-button>
+        <el-button type="primary" @click="onParamConfirm">触发</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -77,7 +112,14 @@
   import { ref, onMounted } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import { getPipelineList, deletePipeline, triggerBuild } from '@/api/workflow'
+  import {
+    getPipelineList,
+    deletePipeline,
+    triggerBuild,
+    findPipeline,
+    togglePipeline,
+    clonePipeline
+  } from '@/api/workflow'
   import { formatDate } from '@/utils/format'
 
   defineOptions({ name: 'WorkflowPipelineList' })
@@ -127,15 +169,91 @@
   }
 
   const onTrigger = async (row) => {
-    try {
-      await ElMessageBox.confirm(`确定触发流水线「${row.name}」?`, '触发确认', { type: 'info' })
-    } catch {
-      return
+    // 查详情看是否定义了参数, 有则弹表单收集
+    const dres = await findPipeline({ id: row.ID })
+    let params = []
+    if (dres.code === 0) {
+      const schema = dres.data.paramSchema || []
+      if (schema.length > 0) {
+        const collected = await collectParams(row.name, schema)
+        if (collected === null) return // 用户取消
+        params = collected
+      }
     }
-    const res = await triggerBuild({ pipelineId: row.ID, params: [] })
+    const res = await triggerBuild({ pipelineId: row.ID, params })
     if (res.code === 0) {
       ElMessage.success('已触发')
       router.push({ name: 'WorkflowBuildDetail', params: { id: res.data.buildId } })
+    }
+  }
+
+  // 参数收集对话框: schema 为参数定义数组, 返回 []ParamValue 或 null(取消)
+  const paramDialogVisible = ref(false)
+  const paramForm = ref([])
+  const paramSchemaCache = ref([])
+  const paramNameCache = ref('')
+  let paramResolve = null
+  const collectParams = (name, schema) => {
+    paramNameCache.value = name
+    paramSchemaCache.value = schema
+    paramForm.value = schema.map((f) => ({
+      name: f.name,
+      label: f.label || f.name,
+      value: f.default || '',
+      required: !!f.required,
+      type: f.type || 'string'
+    }))
+    return new Promise((resolve) => {
+      paramResolve = resolve
+      paramDialogVisible.value = true
+    })
+  }
+  const onParamConfirm = () => {
+    // 必填校验
+    for (const p of paramForm.value) {
+      if (p.required && !p.value) {
+        ElMessage.warning(`参数「${p.label}」必填`)
+        return
+      }
+    }
+    paramDialogVisible.value = false
+    if (paramResolve) {
+      paramResolve(
+        paramForm.value.map((p) => ({ name: p.name, value: String(p.value) }))
+      )
+      paramResolve = null
+    }
+  }
+  const onParamCancel = () => {
+    paramDialogVisible.value = false
+    if (paramResolve) {
+      paramResolve(null)
+      paramResolve = null
+    }
+  }
+
+  const onToggle = async (row) => {
+    const res = await togglePipeline({ id: row.ID, enabled: !row.enabled })
+    if (res.code === 0) {
+      ElMessage.success('操作成功')
+      getList()
+    }
+  }
+
+  const onClone = async (row) => {
+    try {
+      const { value: newName } = await ElMessageBox.prompt('请输入新流水线名称', '克隆流水线', {
+        inputValue: row.name + '-copy',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消'
+      })
+      const res = await clonePipeline({ id: row.ID, newName: newName || '' })
+      if (res.code === 0) {
+        ElMessage.success('克隆成功')
+        getList()
+      }
+    } catch {
+      // 用户取消
     }
   }
 
