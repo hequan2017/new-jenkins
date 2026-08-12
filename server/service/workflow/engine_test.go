@@ -7,15 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	modelWorkflow "github.com/flipped-aurora/gin-vue-admin/server/model/workflow"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils/datascope"
 )
 
 // fakeExecutor 测试用可控执行器: 按 step 名决定成功/失败, 记录调用顺序
 type fakeExecutor struct {
-	mu          sync.Mutex
-	calls       []string
-	failOn      map[string]bool
+	mu           sync.Mutex
+	calls        []string
+	failOn       map[string]bool
 	approvalHook func() // 执行到某 step 时阻塞, 用于测试审批 gate
 }
 
@@ -65,7 +66,8 @@ func seedPipeline(t *testing.T, stages []modelWorkflow.PipelineStage) uint {
 		bs := modelWorkflow.PipelineBuildStage{
 			BuildID: build.ID, StageID: st.ID,
 			SnapshotName: st.Name, SnapshotOrder: st.Order,
-			Status: modelWorkflow.BuildStatusPending,
+			SnapshotApproval: st.Approval, SnapshotContinueOnError: st.ContinueOnError,
+			SnapshotParallel: st.Parallel, Status: modelWorkflow.BuildStatusPending,
 		}
 		if err := gvaCreate(&bs); err != nil {
 			t.Fatalf("seed build stage: %v", err)
@@ -73,7 +75,7 @@ func seedPipeline(t *testing.T, stages []modelWorkflow.PipelineStage) uint {
 		for _, sp := range st.Steps {
 			if err := gvaCreate(&modelWorkflow.PipelineBuildStep{
 				BuildID: build.ID, StageID: bs.ID, StepID: sp.ID,
-				SnapshotName: sp.Name, SnapshotType: sp.Type, SnapshotOrder: sp.Order,
+				SnapshotName: sp.Name, SnapshotType: sp.Type, SnapshotConfig: sp.Config, SnapshotOrder: sp.Order,
 				Status: modelWorkflow.BuildStatusPending,
 			}); err != nil {
 				t.Fatalf("seed build step: %v", err)
@@ -81,6 +83,135 @@ func seedPipeline(t *testing.T, stages []modelWorkflow.PipelineStage) uint {
 		}
 	}
 	return build.ID
+}
+
+// TestEngineUsesSnapshotAfterDefinitionDeleted 已触发构建不依赖可变定义。
+func TestEngineUsesSnapshotAfterDefinitionDeleted(t *testing.T) {
+	stages := []modelWorkflow.PipelineStage{{
+		Name: "snapshot", Order: 1,
+		Steps: []modelWorkflow.PipelineStep{{Name: "original", Type: modelWorkflow.StepTypeShell, Config: jsonBytes(`"snapshot-config"`), Order: 1}},
+	}}
+	buildID := seedPipeline(t, stages)
+	if err := global.GVA_DB.Where("stage_id = ?", stages[0].ID).Delete(&modelWorkflow.PipelineStep{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := global.GVA_DB.Delete(&modelWorkflow.PipelineStage{}, stages[0].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &fakeExecutor{}
+	EngineApp.SetExecutor(fake)
+	defer EngineApp.SetExecutor(newDefaultExecutor())
+	EngineApp.Run(datascope.WithSystem(context.Background()), buildID, 0)
+
+	var b modelWorkflow.PipelineBuild
+	if err := gvaFirst(&b, buildID); err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != modelWorkflow.BuildStatusSuccess || len(fake.calls) != 1 || fake.calls[0] != `"snapshot-config"` {
+		t.Fatalf("快照执行不正确: status=%s calls=%v", b.Status, fake.calls)
+	}
+}
+
+// TestTriggerBuildPersistsCompleteSnapshot 验证真实触发入口落库完整运行快照。
+func TestTriggerBuildPersistsCompleteSnapshot(t *testing.T) {
+	if err := initMemoryDB(t); err != nil {
+		t.Fatal(err)
+	}
+	p := modelWorkflow.Pipeline{
+		Name: "trigger-snapshot", TriggerType: modelWorkflow.TriggerManual, Enabled: true,
+		Stages: []modelWorkflow.PipelineStage{{
+			Name: "gate", Order: 1, Approval: true, ContinueOnError: true, Parallel: true,
+			Steps: []modelWorkflow.PipelineStep{{Name: "run", Type: modelWorkflow.StepTypeShell, Config: jsonBytes(`{"command":"echo ok"}`), Order: 1}},
+		}},
+	}
+	if err := (&PipelineService{}).CreatePipeline(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	blocking := &blockingExecutor{started: make(chan struct{})}
+	EngineApp.SetExecutor(blocking)
+	defer EngineApp.SetExecutor(newDefaultExecutor())
+	buildID, err := (&BuildService{}).TriggerBuild(context.Background(), p.ID, nil, modelWorkflow.TriggerManual, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-blocking.started:
+	case <-time.After(time.Second):
+		t.Fatal("触发后步骤未开始")
+	}
+
+	var stage modelWorkflow.PipelineBuildStage
+	if err := global.GVA_DB.Where("build_id = ?", buildID).First(&stage).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !stage.SnapshotApproval || !stage.SnapshotContinueOnError || !stage.SnapshotParallel {
+		t.Fatalf("阶段行为快照缺失: %+v", stage)
+	}
+	var step modelWorkflow.PipelineBuildStep
+	if err := global.GVA_DB.Where("build_id = ?", buildID).First(&step).Error; err != nil {
+		t.Fatal(err)
+	}
+	if string(step.SnapshotConfig) != `{"command":"echo ok"}` {
+		t.Fatalf("步骤配置快照不正确: %s", step.SnapshotConfig)
+	}
+	if err := (&BuildService{}).CancelBuild(context.Background(), buildID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for EngineApp.isRunning(buildID) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if EngineApp.isRunning(buildID) {
+		t.Fatal("取消后引擎未注销")
+	}
+}
+
+type blockingExecutor struct {
+	started chan struct{}
+}
+
+func (b *blockingExecutor) Execute(ctx context.Context, _ string, _ []byte, _ map[string]string, _ logFunc) StepResult {
+	close(b.started)
+	<-ctx.Done()
+	return StepResult{ExitCode: 1, Err: ctx.Err()}
+}
+
+// TestCancelBuildInterruptsRunningStep 取消会中断正在运行的步骤，并保持 canceled 终态。
+func TestCancelBuildInterruptsRunningStep(t *testing.T) {
+	buildID := seedPipeline(t, []modelWorkflow.PipelineStage{{
+		Name: "long", Order: 1,
+		Steps: []modelWorkflow.PipelineStep{{Name: "wait", Type: modelWorkflow.StepTypeShell, Config: jsonBytes(`"wait"`), Order: 1}},
+	}})
+	blocking := &blockingExecutor{started: make(chan struct{})}
+	EngineApp.SetExecutor(blocking)
+	defer EngineApp.SetExecutor(newDefaultExecutor())
+
+	done := make(chan struct{})
+	go func() {
+		EngineApp.Run(datascope.WithSystem(context.Background()), buildID, 0)
+		close(done)
+	}()
+	select {
+	case <-blocking.started:
+	case <-time.After(time.Second):
+		t.Fatal("步骤未开始")
+	}
+	if err := (&BuildService{}).CancelBuild(context.Background(), buildID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("取消后引擎未及时退出")
+	}
+	var b modelWorkflow.PipelineBuild
+	if err := gvaFirst(&b, buildID); err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != modelWorkflow.BuildStatusCanceled {
+		t.Fatalf("期望 canceled, 实际 %s", b.Status)
+	}
 }
 
 // TestEngineSuccessPath 单 stage 两 step 全成功 -> build success
@@ -126,7 +257,7 @@ func TestEngineStepFailureBuildFailed(t *testing.T) {
 			},
 		},
 		{
-			Name:  "stage-b", Order: 2,
+			Name: "stage-b", Order: 2,
 			Steps: []modelWorkflow.PipelineStep{
 				{Name: "never", Type: modelWorkflow.StepTypeShell, Config: jsonBytes(`"never"`), Order: 1},
 			},

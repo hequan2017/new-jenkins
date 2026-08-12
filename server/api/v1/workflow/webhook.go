@@ -1,9 +1,11 @@
 package workflow
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"strconv"
 
-	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/workflow"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils/logger"
@@ -31,27 +33,29 @@ func (a *WorkflowApi) WebhookTrigger(c *gin.Context) {
 	}
 	secret := c.GetHeader("X-Webhook-Secret")
 
-	// 校验 secret: 查 pipeline 的 webhook_secret 是否匹配
-	var p workflow.Pipeline
-	if err := global.GVA_DB.First(&p, id).Error; err != nil {
-		response.FailWithMessage("流水线不存在", c)
-		return
-	}
-	if p.TriggerType != workflow.TriggerWebhook || p.WebhookSecret == "" || p.WebhookSecret != secret {
+	p, err := pipelineService.AuthenticateWebhook(c.Request.Context(), uint(id), secret)
+	if err != nil {
 		response.FailWithMessage("鉴权失败", c)
-		return
-	}
-	if !p.Enabled {
-		response.FailWithMessage("流水线未启用", c)
 		return
 	}
 
 	// 解析请求体为参数(键值对 -> []ParamValue)
-	var bodyMap map[string]string
-	_ = c.ShouldBindJSON(&bodyMap)
+	var bodyMap map[string]any
+	if err := c.ShouldBindJSON(&bodyMap); err != nil && !errors.Is(err, io.EOF) {
+		response.FailWithMessage("请求体必须是 JSON 对象", c)
+		return
+	}
 	params := make([]workflow.ParamValue, 0, len(bodyMap))
 	for k, v := range bodyMap {
-		params = append(params, workflow.ParamValue{Name: k, Value: v})
+		switch v.(type) {
+		case string, float64, bool:
+			params = append(params, workflow.ParamValue{Name: k, Value: fmt.Sprint(v)})
+		case nil:
+			params = append(params, workflow.ParamValue{Name: k})
+		default:
+			response.FailWithMessage("Webhook 参数只支持 string、number、bool", c)
+			return
+		}
 	}
 
 	buildID, err := buildService.TriggerBuild(c.Request.Context(), p.ID, params, workflow.TriggerWebhook, 0)

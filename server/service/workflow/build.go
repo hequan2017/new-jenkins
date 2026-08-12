@@ -15,6 +15,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/utils/datascope"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils/logger"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // BuildService 构建实例: 触发 / 查询 / 取消 / 审批 gate
@@ -23,97 +24,89 @@ type BuildService struct{}
 // TriggerBuild 创建一条构建记录并异步启动引擎执行
 // triggerBy 为触发人用户ID(0 表示系统触发)。返回新建构建ID。
 func (s *BuildService) TriggerBuild(ctx context.Context, pipelineID uint, params []workflow.ParamValue, trigger string, triggerBy uint) (buildID uint, err error) {
-	// 1. 取流水线定义(含 Stage/Step 树), 校验启用状态
 	var p workflow.Pipeline
-	if err = global.GVA_DB.WithContext(ctx).
-		Preload("Stages", func(db *gorm.DB) *gorm.DB {
-			return db.Order("wf_pipeline_stages.sort_order ASC, id ASC")
-		}).
-		Preload("Stages.Steps", func(db *gorm.DB) *gorm.DB {
-			return db.Order("wf_pipeline_steps.sort_order ASC, id ASC")
-		}).
-		First(&p, pipelineID).Error; err != nil {
-		return 0, fmt.Errorf("流水线不存在: %w", err)
-	}
-	if !p.Enabled {
-		return 0, errors.New("流水线未启用")
-	}
-	if len(p.Stages) == 0 {
-		return 0, errors.New("流水线未配置任何阶段")
-	}
-
-	// 1.5 参数校验: 对照 ParamSchema 检查必填/类型, 缺省用 Default 回填
-	validParams, err := validateAndFillParams(p.ParamSchema, params)
-	if err != nil {
-		return 0, err
-	}
-	params = validParams
-
-	// 2. 计算 buildNo(同流水线下自增)
-	buildNo, err := s.nextBuildNo(ctx, pipelineID)
-	if err != nil {
-		return 0, err
-	}
-
-	// 3. 创建 build + build_stage + build_step 运行实例
 	now := time.Now()
 	build := workflow.PipelineBuild{
 		PipelineID: pipelineID,
-		BuildNo:    buildNo,
 		Status:     workflow.BuildStatusRunning,
-		Params:     mustJSON(params),
 		Trigger:    trigger,
 		TriggerBy:  triggerBy,
 		StartedAt:  &now,
 	}
-	if err = global.GVA_DB.WithContext(ctx).Create(&build).Error; err != nil {
+	err = global.GVA_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 定义读取、参数校验、构建号分配与快照创建共享同一行锁和事务。
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Preload("Stages", func(db *gorm.DB) *gorm.DB {
+				return db.Order("wf_pipeline_stages.sort_order ASC, id ASC")
+			}).
+			Preload("Stages.Steps", func(db *gorm.DB) *gorm.DB {
+				return db.Order("wf_pipeline_steps.sort_order ASC, id ASC")
+			}).
+			First(&p, pipelineID).Error; err != nil {
+			return fmt.Errorf("流水线不存在: %w", err)
+		}
+		if !p.Enabled {
+			return errors.New("流水线未启用")
+		}
+		if len(p.Stages) == 0 {
+			return errors.New("流水线未配置任何阶段")
+		}
+		validParams, err := validateAndFillParams(p.ParamSchema, params)
+		if err != nil {
+			return err
+		}
+		build.Params = mustJSON(validParams)
+		var maxNo int
+		if err := tx.Model(&workflow.PipelineBuild{}).
+			Where("pipeline_id = ?", pipelineID).
+			Select("COALESCE(MAX(build_no), 0)").Scan(&maxNo).Error; err != nil {
+			return err
+		}
+		build.BuildNo = maxNo + 1
+		if err := tx.Create(&build).Error; err != nil {
+			return err
+		}
+		// 完整快照阶段行为与步骤配置，定义后续被修改/删除不影响已触发构建。
+		for _, st := range p.Stages {
+			bs := workflow.PipelineBuildStage{
+				BuildID:                 build.ID,
+				StageID:                 st.ID,
+				SnapshotName:            st.Name,
+				SnapshotOrder:           st.Order,
+				SnapshotApproval:        st.Approval,
+				SnapshotContinueOnError: st.ContinueOnError,
+				SnapshotParallel:        st.Parallel,
+				Status:                  workflow.BuildStatusPending,
+			}
+			if err := tx.Create(&bs).Error; err != nil {
+				return err
+			}
+			for _, sp := range st.Steps {
+				bstep := workflow.PipelineBuildStep{
+					BuildID:        build.ID,
+					StageID:        bs.ID,
+					StepID:         sp.ID,
+					SnapshotName:   sp.Name,
+					SnapshotType:   sp.Type,
+					SnapshotConfig: append([]byte(nil), sp.Config...),
+					SnapshotOrder:  sp.Order,
+					Status:         workflow.BuildStatusPending,
+				}
+				if err := tx.Create(&bstep).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return 0, err
-	}
-	// 快照阶段 / 步骤定义到运行实例(定义后续被改不影响历史)
-	for _, st := range p.Stages {
-		bs := workflow.PipelineBuildStage{
-			BuildID:       build.ID,
-			StageID:       st.ID,
-			SnapshotName:  st.Name,
-			SnapshotOrder: st.Order,
-			Status:        workflow.BuildStatusPending,
-		}
-		if err = global.GVA_DB.WithContext(ctx).Create(&bs).Error; err != nil {
-			return 0, err
-		}
-		for _, sp := range st.Steps {
-			bstep := workflow.PipelineBuildStep{
-				BuildID:       build.ID,
-				StageID:       bs.ID,
-				StepID:        sp.ID,
-				SnapshotName:  sp.Name,
-				SnapshotType:  sp.Type,
-				SnapshotOrder: sp.Order,
-				Status:        workflow.BuildStatusPending,
-			}
-			if err = global.GVA_DB.WithContext(ctx).Create(&bstep).Error; err != nil {
-				return 0, err
-			}
-		}
 	}
 
 	// 4. 异步启动引擎; goroutine 内用系统上下文(datascope.WithSystem), 不裸 context.Background()
 	engineCtx := datascope.WithSystem(context.Background())
 	go EngineApp.Run(engineCtx, build.ID, triggerBy)
 	return build.ID, nil
-}
-
-// nextBuildNo 同流水线下构建序号自增(并发安全: 用子查询取 MAX+1)
-func (s *BuildService) nextBuildNo(ctx context.Context, pipelineID uint) (int, error) {
-	var maxNo int
-	err := global.GVA_DB.WithContext(ctx).
-		Model(&workflow.PipelineBuild{}).
-		Where("pipeline_id = ?", pipelineID).
-		Select("COALESCE(MAX(build_no), 0)").Scan(&maxNo).Error
-	if err != nil {
-		return 0, err
-	}
-	return maxNo + 1, nil
 }
 
 // GetBuildList 分页查询构建历史
@@ -180,7 +173,7 @@ func (s *BuildService) GetBuildLog(ctx context.Context, info workflowReq.BuildLo
 }
 
 // CancelBuild 取消构建: 仅 running / running-approval / pending 可取消
-// 实际中断由 Engine 检查 ctx 实现; 这里把状态标记为 canceled, Engine 轮询到即停。
+// 更新状态后通知 Engine 取消运行上下文，可立即中断 Shell/HTTP 或审批等待。
 func (s *BuildService) CancelBuild(ctx context.Context, id uint) error {
 	rows, err := s.setBuildStatusIfIn(ctx, id, workflow.BuildStatusCanceled,
 		workflow.BuildStatusRunning, workflow.BuildStatusApproval, workflow.BuildStatusPending)
@@ -190,6 +183,7 @@ func (s *BuildService) CancelBuild(ctx context.Context, id uint) error {
 	if rows == 0 {
 		return errors.New("当前构建状态不可取消")
 	}
+	EngineApp.Cancel(id)
 	return nil
 }
 
@@ -260,11 +254,22 @@ func validateAndFillParams(schemaJSON []byte, params []workflow.ParamValue) ([]w
 	// 入参转 map 便于查找
 	inputMap := make(map[string]string, len(params))
 	for _, p := range params {
+		if _, exists := inputMap[p.Name]; exists {
+			return nil, fmt.Errorf("参数重复: %s", p.Name)
+		}
 		inputMap[p.Name] = p.Value
 	}
 	// 对照 schema 逐项校验 + 回填默认值
 	result := make([]workflow.ParamValue, 0, len(schema))
+	schemaNames := make(map[string]struct{}, len(schema))
 	for _, f := range schema {
+		if f.Name == "" {
+			return nil, errors.New("流水线参数定义包含空名称")
+		}
+		if _, exists := schemaNames[f.Name]; exists {
+			return nil, fmt.Errorf("流水线参数定义名称重复: %s", f.Name)
+		}
+		schemaNames[f.Name] = struct{}{}
 		v, ok := inputMap[f.Name]
 		if !ok || v == "" {
 			if f.Required && f.Default == "" {
@@ -279,6 +284,11 @@ func validateAndFillParams(schemaJSON []byte, params []workflow.ParamValue) ([]w
 			}
 		}
 		result = append(result, workflow.ParamValue{Name: f.Name, Value: v})
+	}
+	for name := range inputMap {
+		if _, exists := schemaNames[name]; !exists {
+			return nil, fmt.Errorf("未声明的参数: %s", name)
+		}
 	}
 	return result, nil
 }

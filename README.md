@@ -15,13 +15,13 @@
   - 阶段可标记 `Approval`（人工审批 gate），跑完后构建进入 `running-approval` 等待人工批准/拒绝
   - 阶段可标记 `ContinueOnError`，步骤失败后继续执行后续阶段
 - **参数体系**：流水线可声明 `ParamSchema`（string / number / bool），触发时按 Schema 校验必填与类型、回填默认值；执行器支持 `${param.xxx}` 与 `$param.xxx` 变量替换
-- **定义与运行分离**：Stage/Step 定义在触发构建时快照到运行实例，后续修改定义不影响历史构建
+- **定义与运行分离**：触发时在单事务内快照 Stage 的审批/容错/并行配置和 Step 的类型/配置；随后修改或删除定义都不改变本次构建
 
 ### 构建管理
 
 - **状态机**：`pending -> running -> running-approval -> success | failed | canceled`
-- 构建序号（buildNo）同流水线自增，历史记录分页可查
-- 支持**取消**（running / running-approval / pending 状态）与**重跑**（复用历史参数触发新构建）
+- 构建序号（buildNo）按流水线原子分配，并由 `(pipeline_id, build_no)` 唯一索引兜底；历史记录分页可查
+- 支持**即时取消**（running / running-approval / pending）：运行上下文会同步取消，可中断 HTTP、Shell 和审批等待；支持复用历史参数**重跑**
 - 构建详情按阶段/步骤展示运行视图，日志独立落表支持分页拉取
 
 ### 实时日志与告警
@@ -43,6 +43,88 @@
 - 增删改查（级联保存 Stage/Step 树）、启用/停用、**克隆**（深拷贝定义树，克隆后默认手动触发避免重复定时）
 - webhook 类型自动生成 32 字节随机密钥，更新时不覆盖已有密钥
 
+## 声明式定义示例
+
+流水线由一个 JSON 定义描述，页面编辑器最终提交的结构与下面一致。`order` 决定顺序，`parallel` 控制阶段内步骤是否并发；参数只能引用 `paramSchema` 中已声明的名称。
+
+```json
+{
+  "name": "release-service",
+  "description": "构建、检查并发布服务",
+  "triggerType": "manual",
+  "enabled": true,
+  "paramSchema": [
+    { "name": "version", "label": "版本", "type": "string", "required": true, "default": "" },
+    { "name": "dryRun", "label": "演练", "type": "bool", "required": false, "default": "false" }
+  ],
+  "stages": [
+    {
+      "name": "构建",
+      "order": 1,
+      "approval": false,
+      "continueOnError": false,
+      "parallel": true,
+      "steps": [
+        {
+          "name": "编译",
+          "type": "shell",
+          "order": 1,
+          "config": {
+            "command": "go build -o app-${param.version} ./...",
+            "timeoutSec": 600,
+            "env": { "DRY_RUN": "$param.dryRun" }
+          }
+        },
+        {
+          "name": "健康检查",
+          "type": "http",
+          "order": 2,
+          "config": {
+            "url": "https://example.com/health?version=${param.version}",
+            "method": "GET",
+            "expectStatus": 200,
+            "timeoutSec": 30,
+            "allowPrivate": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "发布审批",
+      "order": 2,
+      "approval": true,
+      "continueOnError": false,
+      "parallel": false,
+      "steps": []
+    },
+    {
+      "name": "发布",
+      "order": 3,
+      "approval": false,
+      "continueOnError": false,
+      "parallel": false,
+      "steps": [
+        {
+          "name": "执行发布",
+          "type": "shell",
+          "order": 1,
+          "config": { "command": "./deploy.sh ${param.version}", "timeoutSec": 900 }
+        }
+      ]
+    }
+  ]
+}
+```
+
+步骤配置约定：
+
+| 类型 | 必填字段 | 可选字段 | 成功条件 |
+| --- | --- | --- | --- |
+| `shell` | `command` | `timeoutSec`（默认 600）、`env` | 进程退出码为 0 |
+| `http` | `url` | `method`（默认 GET）、`headers`、`body`、`timeoutSec`（默认 30）、`expectStatus`、`allowPrivate` | 默认 2xx；设置 `expectStatus` 时必须精确匹配 |
+
+参数支持 `${param.name}` 和 `$param.name` 两种写法。替换仅发生在步骤配置的字符串值中，未声明参数、重复参数、未知参数或类型不匹配都会在触发阶段被拒绝。
+
 ### 平台能力（继承自 GVA）
 
 - RBAC 权限控制（Casbin）、行级数据权限（GORM 全局回调）
@@ -57,6 +139,59 @@
 | 后端 | Go、Gin、GORM、Casbin、Viper、Zap、Redis、JWT、robfig/cron |
 | 存储 | 默认 SQLite（开箱即用），支持 MySQL / PostgreSQL / SQL Server / Oracle |
 | 部署 | Docker、docker-compose、Kubernetes |
+
+## 系统架构
+
+```mermaid
+flowchart TB
+    subgraph Client["调用方 / 客户端"]
+        UI["前端页面<br>Vue 3 · Pinia · Element Plus · UnoCSS"]
+        WU["Webhook 调用方<br>X-Webhook-Secret 鉴权"]
+    end
+
+    subgraph Web["前端工程 web/"]
+        VITE["Vite Dev Server / Nginx<br>代理 API 与 SSE 流"]
+    end
+
+    subgraph Server["后端服务 server/（Go + Gin，Router → API → Service → Model）"]
+        direction TB
+        ROUTER["路由层<br>JWT → MustChangePwd → Casbin → DataScope 中间件链"]
+        API["API 层 api/v1/workflow<br>流水线 / 构建 / 审批 / Webhook 入口"]
+        SVC["Service 层 service/workflow"]
+        ENGINE["engine.go 编排引擎<br>Stage → Step 状态机 · 审批 gate · 事件流"]
+        EXEC["executor.go 可插拔执行器<br>http 回调 · shell 命令 · SSRF 防护"]
+        SCHED["schedule.go 定时调度<br>robfig/cron · 重启自动恢复"]
+        CRUD["pipeline.go / build.go<br>定义 CRUD · 构建触发 / 取消 / 重跑"]
+        GVA["GVA 平台基础设施<br>RBAC · 数据权限 · 代码生成 · 插件机制"]
+    end
+
+    subgraph Store["存储层"]
+        DB[("SQLite / MySQL / PostgreSQL / SQL Server / Oracle")]
+        REDIS[("Redis<br>缓存 · JWT 会话")]
+    end
+
+    subgraph Deploy["部署方式"]
+        DOCKER["Docker / docker-compose"]
+        K8S["Kubernetes"]
+    end
+
+    UI --> VITE
+    VITE -->|HTTP + SSE| ROUTER
+    WU -->|"POST /webhook/trigger/{id}"| API
+    ROUTER --> API
+    API --> SVC
+    SVC --> ENGINE
+    SVC --> CRUD
+    ENGINE --> EXEC
+    ENGINE --> SCHED
+    ENGINE --> CRUD
+    ENGINE -.->|"SSE 事件流 build:status / step:log"| UI
+    SVC --> GVA
+    CRUD --> DB
+    EXEC --> DB
+    SVC --> REDIS
+    Server -.->|镜像化部署| Deploy
+```
 
 ## 目录结构
 
@@ -88,9 +223,9 @@
 | `wf_pipelines` | 流水线定义（名称、触发方式、cron、webhook 密钥、参数 Schema、启停） |
 | `wf_pipeline_stages` | 阶段定义（顺序、是否审批、是否并行、是否容错继续） |
 | `wf_pipeline_steps` | 步骤定义（类型、JSON 配置、顺序） |
-| `wf_pipeline_builds` | 构建实例（状态机、入参、触发方式/人、时间） |
-| `wf_pipeline_build_stages` | 构建阶段运行视图（名称/顺序快照、状态、时间） |
-| `wf_pipeline_build_steps` | 构建步骤运行视图（类型/顺序快照、退出码、时间） |
+| `wf_pipeline_builds` | 构建实例（状态机、唯一构建序号、入参、触发方式/人、时间） |
+| `wf_pipeline_build_stages` | 构建阶段运行视图（名称/顺序/审批/容错/并行快照、状态、时间） |
+| `wf_pipeline_build_steps` | 构建步骤运行视图（名称/类型/顺序/配置快照、退出码、时间） |
 | `wf_pipeline_build_logs` | 日志行（build+step+seq 定位，流分类，分页/推流） |
 
 ## 接口一览
@@ -125,6 +260,51 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/webhook/trigger/{id}` | 触发流水线，需 `X-Webhook-Secret` 头 |
+
+请求体是参数 JSON 对象，例如：
+
+```bash
+curl -X POST "http://127.0.0.1:8888/webhook/trigger/1" \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Secret: <secret>" \
+  -d '{"version":"1.2.3","dryRun":false}'
+```
+
+## 状态与执行语义
+
+```text
+running ──步骤/阶段成功──> success
+   │
+   ├──审批阶段完成──> running-approval ──批准──> running
+   │                                      └──拒绝──> failed
+   ├──步骤失败且不容错────────────────────────────> failed
+   └──取消（含 HTTP / Shell / 审批等待）──────────> canceled
+```
+
+- 串行阶段遇到失败会跳过该阶段剩余步骤；并行阶段等待所有已启动步骤收敛后再决定阶段结果。
+- `continueOnError=true` 只允许继续后续阶段，失败步骤与阶段本身仍记录为 `failed`。
+- 最后一个阶段设置 `approval=true` 不再等待后续批准，因为已经没有下一阶段。
+- 构建状态和日志持久化到数据库；SSE 只负责实时增量，断线后页面通过详情与日志接口补齐。
+
+## 安全边界与当前限制
+
+- Shell 命令等价于 Jenkins 的 `sh`：执行权限与服务进程相同，只应向可信流水线编辑者开放权限；本引擎不提供容器沙箱或命令白名单。
+- HTTP 步骤默认拒绝环回、链路本地和私网地址；只有明确设置 `allowPrivate=true` 才放行内部目标。
+- 当前执行器运行在 GVA 单进程本机，不包含远程 Agent、工作空间隔离、制品库或凭据保险库。
+- SSE Hub 为进程内实现；多实例部署需要增加 Redis 等跨实例事件扇出，否则实时事件只到达承载该连接的实例。
+- 进程重启会恢复 cron 注册，但不会自动接管重启前处于 `running` 或 `running-approval` 的构建。
+
+## 验证
+
+```bash
+cd server
+go test ./service/workflow
+go test ./...
+go vet ./...
+
+cd ../web
+npm run build
+```
 
 ## 快速开始
 

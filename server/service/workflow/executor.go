@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -41,6 +42,8 @@ type defaultExecutor struct {
 	shell *shellExecutor
 }
 
+var paramPattern = regexp.MustCompile(`\$\{param\.([^}]+)\}|\$param\.([A-Za-z0-9_.-]+)`)
+
 func newDefaultExecutor() *defaultExecutor {
 	return &defaultExecutor{http: &httpExecutor{}, shell: &shellExecutor{}}
 }
@@ -58,37 +61,60 @@ func (d *defaultExecutor) Execute(ctx context.Context, stepType string, config [
 	}
 }
 
-// expandConfig 对 step config 做 ${param.xxx} 变量替换。
-// 用自定义映射函数支持 ${param.name} 和 $param.name 两种写法;
-// 未知变量保留原样(不替换),避免误清空。
+// expandConfig 对 step config 做 ${param.xxx} / $param.xxx 变量替换。
+// 未知变量保留原样，避免误清空 Shell 自身的环境变量。
 func expandConfig(config []byte, params map[string]string) []byte {
 	if len(params) == 0 || len(config) == 0 {
 		return config
 	}
-	expanded := os.Expand(string(config), func(key string) string {
-		// 仅识别 param. 前缀的变量, 其它 $ 不替换(防止 shell 的 $VAR 被误替换)
-		if strings.HasPrefix(key, "param.") {
-			name := strings.TrimPrefix(key, "param.")
-			if v, ok := params[name]; ok {
-				return v
+	var value any
+	if err := json.Unmarshal(config, &value); err != nil {
+		return config
+	}
+	value = expandParamValue(value, params)
+	expanded, err := json.Marshal(value)
+	if err != nil {
+		return config
+	}
+	return expanded
+}
+
+func expandParamValue(value any, params map[string]string) any {
+	switch current := value.(type) {
+	case string:
+		return paramPattern.ReplaceAllStringFunc(current, func(match string) string {
+			parts := paramPattern.FindStringSubmatch(match)
+			name := parts[1]
+			if name == "" {
+				name = parts[2]
 			}
+			if value, ok := params[name]; ok {
+				return value
+			}
+			return match
+		})
+	case []any:
+		for i := range current {
+			current[i] = expandParamValue(current[i], params)
 		}
-		// 未知变量: 还原成 ${key} 形式, 不替换
-		return "${" + key + "}"
-	})
-	return []byte(expanded)
+	case map[string]any:
+		for key := range current {
+			current[key] = expandParamValue(current[key], params)
+		}
+	}
+	return value
 }
 
 // ============================== HTTP 执行器 ==============================
 
 type httpExecutorConfig struct {
-	URL           string            `json:"url"`
-	Method        string            `json:"method"`
-	Headers       map[string]string `json:"headers"`
-	Body          string            `json:"body"`
-	TimeoutSec    int               `json:"timeoutSec"`
-	AllowPrivate  bool              `json:"allowPrivate"`
-	ExpectStatus  int               `json:"expectStatus"` // 期望状态码, 0 表示 2xx 即成功
+	URL          string            `json:"url"`
+	Method       string            `json:"method"`
+	Headers      map[string]string `json:"headers"`
+	Body         string            `json:"body"`
+	TimeoutSec   int               `json:"timeoutSec"`
+	AllowPrivate bool              `json:"allowPrivate"`
+	ExpectStatus int               `json:"expectStatus"` // 期望状态码, 0 表示 2xx 即成功
 }
 
 type httpExecutor struct{}
@@ -200,7 +226,7 @@ func (s *shellExecutor) Execute(ctx context.Context, config []byte, log logFunc)
 	shell, args := shellPath()
 	cmd := exec.CommandContext(runCtx, shell, append(args, cfg.Command)...)
 	if len(cfg.Env) > 0 {
-		cmd.Env = append(cmd.Env, envSlice(cfg.Env)...)
+		cmd.Env = append(os.Environ(), envSlice(cfg.Env)...)
 	}
 	cmd.Stdout = lineWriter{fn: func(line string) { log("stdout", line) }}
 	cmd.Stderr = lineWriter{fn: func(line string) { log("stderr", line) }}

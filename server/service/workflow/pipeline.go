@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	workflowReq "github.com/flipped-aurora/gin-vue-admin/server/model/workflow/request"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // PipelineService 流水线定义 CRUD + Stage/Step 级联保存
@@ -57,6 +59,10 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, p *workflow.Pipeli
 	}
 
 	if err := global.GVA_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var locked workflow.Pipeline
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&locked, p.ID).Error; err != nil {
+			return err
+		}
 		// 先清旧 Stage(级联清 Step, 靠外键 OnDelete:CASCADE), 再写新树
 		if err := tx.Where("pipeline_id = ?", p.ID).Delete(&workflow.PipelineStage{}).Error; err != nil {
 			return err
@@ -152,6 +158,19 @@ func (s *PipelineService) FindPipeline(ctx context.Context, id uint) (p workflow
 		}).
 		First(&p, id).Error
 	return
+}
+
+// AuthenticateWebhook 校验公开 Webhook 的流水线类型、启用状态和密钥。
+func (s *PipelineService) AuthenticateWebhook(ctx context.Context, id uint, secret string) (workflow.Pipeline, error) {
+	var p workflow.Pipeline
+	if err := global.GVA_DB.WithContext(ctx).First(&p, id).Error; err != nil {
+		return p, errors.New("webhook 鉴权失败")
+	}
+	if p.TriggerType != workflow.TriggerWebhook || !p.Enabled || p.WebhookSecret == "" || secret == "" ||
+		subtle.ConstantTimeCompare([]byte(p.WebhookSecret), []byte(secret)) != 1 {
+		return p, errors.New("webhook 鉴权失败")
+	}
+	return p, nil
 }
 
 // GetPipelineList 分页查询流水线定义列表
@@ -260,7 +279,7 @@ func (s *PipelineService) fillWebhookSecret(p *workflow.Pipeline) {
 
 // newWebhookSecret 生成 32 字节随机十六进制字符串
 func newWebhookSecret() string {
-	b := make([]byte, 16)
+	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		// 极端情况: 用时间戳兜底(不应发生)
 		return fmt.Sprintf("%x", time.Now().UnixNano())
