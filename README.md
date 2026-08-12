@@ -1,6 +1,92 @@
-# gin-vue-admin（自研流水线版）
+# New Jenkins：自研类 Jenkins 声明式流水线引擎
 
-基于 [gin-vue-admin](https://github.com/flipped-aurora/gin-vue-admin) 深度定制的全栈管理系统。除保留 GVA 原有的 RBAC 权限、代码生成、插件化等基础设施外，核心亮点是内置了一套**自研类 Jenkins 声明式流水线引擎**，以轻量可插拔的方式提供 CI/CD / 任务编排能力，不依赖外部 Jenkins 服务。
+[![CI](https://github.com/hequan2017/new-jenkins/actions/workflows/ci.yaml/badge.svg)](https://github.com/hequan2017/new-jenkins/actions/workflows/ci.yaml)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](server/go.mod)
+[![Node.js](https://img.shields.io/badge/Node.js-20-339933?logo=node.js&logoColor=white)](web/Dockerfile)
+[![GitHub issues](https://img.shields.io/github/issues/hequan2017/new-jenkins)](https://github.com/hequan2017/new-jenkins/issues)
+
+仓库地址：[github.com/hequan2017/new-jenkins](https://github.com/hequan2017/new-jenkins)
+
+New Jenkins 是基于 [gin-vue-admin](https://github.com/flipped-aurora/gin-vue-admin) 深度定制的全栈管理系统。项目保留 GVA 原有的 RBAC 权限、代码生成和插件化基础设施，并内置一套**自研类 Jenkins 声明式流水线引擎**，以轻量、可插拔的方式提供 CI/CD 与任务编排能力，不依赖外部 Jenkins 服务。
+
+> [!IMPORTANT]
+> 本项目当前处于持续开发阶段，执行器运行在服务进程所在主机，尚未提供远程 Agent、工作空间隔离或凭据保险库。请先阅读[安全边界与当前限制](#安全边界与当前限制)和[许可证](#许可证)，再评估部署方式。
+
+## 目录
+
+- [快速开始](#快速开始)
+- [核心特性](#核心特性)
+- [声明式定义示例](#声明式定义示例)
+- [技术栈](#技术栈)
+- [系统架构](#系统架构)
+- [目录结构](#目录结构)
+- [数据模型](#数据模型workflow-模块wf_-前缀)
+- [接口一览](#接口一览)
+- [状态与执行语义](#状态与执行语义)
+- [安全边界与当前限制](#安全边界与当前限制)
+- [配置说明](#配置说明)
+- [开发验证](#开发验证)
+- [部署](#部署)
+- [路线图](#路线图)
+- [参与贡献](#参与贡献)
+- [问题反馈与安全报告](#问题反馈与安全报告)
+- [许可证](#许可证)
+
+## 快速开始
+
+### 环境要求
+
+| 依赖 | 版本 / 说明 |
+| --- | --- |
+| Git | 用于克隆和协作 |
+| Go | 1.24；`server/go.mod` 声明 toolchain 1.24.2 |
+| Node.js | 20；与前端 Dockerfile 和 CI 保持一致 |
+| npm | 随 Node.js 安装，用于前端依赖与脚本 |
+| 数据库 | 默认 SQLite，无需额外服务；也支持 MySQL、PostgreSQL、SQL Server、Oracle |
+| Redis | 默认关闭；仅在启用相关缓存、会话能力时需要 |
+
+### 获取代码
+
+```bash
+git clone https://github.com/hequan2017/new-jenkins.git
+cd new-jenkins
+```
+
+### 启动后端
+
+```bash
+cd server
+go mod download
+go run .
+```
+
+后端默认监听 `http://127.0.0.1:8888`，默认使用 SQLite，数据库文件写入 `server/data/gva.db`。首次运行会按项目初始化流程创建表和基础数据。
+
+如需指定其他配置文件：
+
+```bash
+go run . -c config.yaml
+```
+
+### 启动前端
+
+另开一个终端：
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+前端开发服务默认访问 `http://127.0.0.1:8080`，`/api` 请求和 SSE 连接由 Vite 代理到后端 `8888` 端口。
+
+### 开始使用流水线
+
+1. 登录系统并进入“工作流平台 → 流水线管理”。
+2. 新建流水线，配置参数、Stage 和 HTTP/Shell Step。
+3. 启用流水线后手动触发，或配置 cron/Webhook 触发。
+4. 在“构建历史”查看 Stage 状态、Step 日志和审批操作。
 
 ## 核心特性
 
@@ -213,7 +299,7 @@ flowchart TB
 │   └── src/api/workflow.js     前端 API 封装
 ├── deploy/                     部署资产（Docker、docker-compose、Kubernetes）
 ├── aiDoc/                      结构化 AI 协作文档层（规则、示例、记忆）
-└── docs/                       项目文档与设计记录
+└── .github/                    CI 工作流、Issue 模板与社区配置
 ```
 
 ## 数据模型（workflow 模块，`wf_` 前缀）
@@ -294,63 +380,113 @@ running ──步骤/阶段成功──> success
 - SSE Hub 为进程内实现；多实例部署需要增加 Redis 等跨实例事件扇出，否则实时事件只到达承载该连接的实例。
 - 进程重启会恢复 cron 注册，但不会自动接管重启前处于 `running` 或 `running-approval` 的构建。
 
-## 验证
+## 配置说明
+
+| 文件 | 用途 |
+| --- | --- |
+| `server/config.yaml` | 本地后端配置，包括端口、数据库、JWT、Redis、日志等 |
+| `server/config.docker.yaml` | 容器环境后端配置示例 |
+| `web/.env.development` | 前端开发环境变量 |
+| `web/.env.production` | 前端生产构建环境变量 |
+
+配置数据库、Webhook 或外部系统时，请遵循以下原则：
+
+- 不要把真实密码、JWT 密钥、Webhook Secret、云访问密钥或其他生产凭据提交到 Git。
+- 生产环境应通过 Secret 管理服务、容器 Secret 或受控环境变量注入敏感配置。
+- Shell Step 继承后端进程的环境与权限；不要将不可信输入直接拼接到命令中。
+- 开放 `allowPrivate` 前确认目标地址可信，并限制流水线编辑权限。
+
+## 开发验证
+
+提交 Pull Request 前，至少执行与变更范围对应的检查：
 
 ```bash
 cd server
 go test ./service/workflow
-go test ./...
 go vet ./...
 
 cd ../web
+npm run lint
 npm run build
 ```
 
-## 快速开始
+如果修改了后端公共模块，再补充运行 `go test ./...`。当前仓库的全量测试可能包含与 workflow 模块无关的既有基线问题，发现失败时请在 Pull Request 中记录具体包、用例和错误信息，不要忽略或笼统标记为通过。
 
-### 本地开发
-
-**后端**（`server/` 目录）：
+常用构建命令：
 
 ```bash
-go mod tidy
-go run main.go
-```
-
-- 默认监听 `:8888`，数据库使用 SQLite（`server/config.yaml` → `system.db-type: sqlite`，数据落在 `data/gva.db`）
-- 首次启动自动建表并初始化默认数据（账号见初始化日志）
-- 定时流水线在启动时自动恢复注册，无需额外配置
-
-**前端**（`web/` 目录）：
-
-```bash
-npm install
-npm run dev
-```
-
-默认开发地址 `http://localhost:8080`，Vite 已代理 API 与 SSE 到后端。
-
-### 构建与部署
-
-```bash
-# 本地打包前后端（产物进 build/）
+# 本地构建前后端，产物写入 build/
 make build-local
 
 # 生成 Swagger 文档
 make doc
 
-# Docker 镜像构建
-make build-image-web / build-image-server / image / images
+# 构建前端、后端或完整镜像
+make build-image-web
+make build-image-server
+make image
 ```
 
-部署编排见 `deploy/docker-compose/docker-compose.yaml`（前端 + 后端二合一），Kubernetes 清单见 `deploy/kubernetes/`，镜像 Dockerfile 见 `deploy/docker/Dockerfile`。
+## 部署
 
-## 文档
+仓库提供以下部署资产：
 
-- `AGENTS.md`：AI 协作规则唯一真源
-- `aiDoc/`：结构化 AI 文档层（技术栈画像、开发流程、分层规则、示例等）
-- `docs/`：项目文档与设计记录
+| 方式 | 入口 | 适用场景 |
+| --- | --- | --- |
+| Docker Compose | `deploy/docker-compose/docker-compose.yaml` | 本地联调、功能验证和单机部署样例 |
+| Kubernetes | `deploy/kubernetes/` | 集群部署基础清单，使用前需结合实际环境调整 |
+| 独立镜像 | `server/Dockerfile`、`web/Dockerfile` | 分别构建后端与前端镜像 |
+| 一体化镜像 | `deploy/docker/Dockerfile` | 构建包含前后端产物的镜像 |
+
+> [!WARNING]
+> Docker Compose 文件包含仅用于示例环境的数据库账号和明文口令。部署前必须替换所有示例凭据，限制数据库与 Redis 的网络暴露，并根据实际环境配置持久化、TLS、备份、资源限额和健康检查。现有清单不代表生产安全基线。
+
+由于 SSE Hub 当前为进程内实现，直接扩展为多个后端副本会造成实时事件分散。在完成跨实例事件总线之前，建议后端保持单实例，或为同一构建连接配置可靠的会话粘滞策略。
+
+## 路线图
+
+以下方向尚未完成，欢迎通过 Issue 参与设计讨论：
+
+- 远程 Agent 与异构执行节点调度。
+- 构建工作空间、制品和缓存隔离。
+- 凭据保险库及步骤级安全注入。
+- 基于 Redis 等事件总线的多实例 SSE 扇出。
+- 服务重启后对运行中、审批中构建的恢复与接管。
+- 更丰富的声明式步骤、条件表达式和可复用模板。
+
+路线图不构成版本或交付时间承诺，实际优先级以仓库 Issue 和维护计划为准。
+
+## 参与贡献
+
+欢迎提交 Bug 修复、文档改进、测试和独立设计的新能力。建议采用以下流程：
+
+1. 对大型功能、接口变更或架构调整，先创建 [Issue](https://github.com/hequan2017/new-jenkins/issues) 讨论目标与边界。
+2. Fork 仓库，并从最新的 `main` 创建功能分支。
+3. 保持改动聚焦，补充必要测试和文档，执行[开发验证](#开发验证)。
+4. 使用清晰的提交信息，推荐格式：`type(scope): description`。
+5. 向 `main` 提交 Pull Request，说明背景、实现、验证结果及兼容性影响。
+
+参与贡献即表示你同意提交内容遵循本仓库的许可证和归属要求。请勿提交无法合法再分发的代码、资源、凭据或个人数据。
+
+## 问题反馈与安全报告
+
+- Bug：使用 [Bug Report](https://github.com/hequan2017/new-jenkins/issues/new?template=bug_report.yaml) 提供版本、复现步骤、预期行为和必要日志。
+- 功能建议：使用 [Feature Request](https://github.com/hequan2017/new-jenkins/issues/new?template=feature_request.yaml) 描述使用场景与期望结果。
+- 一般讨论：进入仓库 [Issues](https://github.com/hequan2017/new-jenkins/issues) 检索或创建议题。
+- 安全问题：不要在公开 Issue 中披露可利用细节、真实密钥或生产数据；请通过 GitHub 仓库所有者提供的私密联系方式报告，并在修复公开前保留合理处置时间。
+
+## 相关文档
+
+- [GitHub 开源仓库](https://github.com/hequan2017/new-jenkins)：源代码、版本历史与协作入口。
+- [Issues](https://github.com/hequan2017/new-jenkins/issues)：问题反馈与功能建议。
+- `server/docs/`：后端 Swagger 生成文件。
+- `aiDoc/`：项目架构、开发流程、分层规则、示例和 AI 协作文档。
+- `AGENTS.md`：本仓库的 AI 协作规则。
 
 ## 许可证
 
-本项目遵循 [LICENSE](LICENSE) 许可。
+本仓库所含许可作品采用 [Business Source License 1.1](LICENSE) 授权。许可证允许满足条款的个人使用、评估与开发使用，以及非商业教学、研究或学术用途；任何未被附加授权明确允许的使用均属于 Production Use，需要取得有效商业许可证。
+
+每个版本在首次公开发布三年后到达 Change Date，并针对该版本转为 Apache License 2.0。具体定义、使用条件、授权验证机制、免责声明、商业授权联系方式及版本转换规则均以仓库中的 [LICENSE](LICENSE) 原文为准。
+
+本项目基于 [gin-vue-admin](https://github.com/flipped-aurora/gin-vue-admin) 进行定制开发，保留其原始项目归属、许可声明和品牌权利。本许可证不授予许可方商标、服务标记、商号或 Logo 的使用权。
