@@ -82,6 +82,16 @@ func (s *InspectService) runOnce(t ops.InspectTask) {
 	// 审计(系统操作人)
 	_ = (&AuditService{}).Record(ctx, 0, "system", ops.AuditActionInspect,
 		fmt.Sprintf("task=%d asset=%d", t.ID, t.AssetID), "", status, trim(out, 500))
+
+	// 告警联动: 异常则产生告警, 正常则自动处理历史告警
+	alertSvc := (&AlertService{})
+	taskName := fmt.Sprintf("%s(task=%d)", t.Name, t.ID)
+	if status == ops.InspectStatusAlert {
+		_ = alertSvc.Raise(ctx, ops.AlertSourceInspect, ops.AlertLevelCritical,
+			"巡检异常: "+t.Name, remark+" | 输出: "+trim(out, 300), t.ID, taskName)
+	} else {
+		_ = alertSvc.Resolve(ctx, ops.AlertSourceInspect, t.ID, "巡检恢复正常")
+	}
 }
 
 // hitKeyword 检查输出是否命中任一关键字(逗号分隔)

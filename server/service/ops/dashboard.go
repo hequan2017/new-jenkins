@@ -21,6 +21,7 @@ type DashboardData struct {
 	InspectStat   map[string]int64 `json:"inspectStat"` // 各巡检任务最近状态
 	AlertToday    int64            `json:"alertToday"`  // 今日巡检异常数
 	AuditToday    int64            `json:"auditToday"`  // 今日审计数
+	AlertActive   int64            `json:"alertActive"` // 未处理告警数
 }
 
 // GetDashboard 聚合各维度统计
@@ -68,6 +69,7 @@ func (s *DashboardService) GetDashboard(ctx context.Context) (DashboardData, err
 		Where("status = ?", ops.InspectStatusAlert).
 		Where("created_at >= ?", todayStart()).Count(&d.AlertToday)
 	db.Model(&ops.AuditRecord{}).Where("created_at >= ?", todayStart()).Count(&d.AuditToday)
+	d.AlertActive = (&AlertService{}).CountActive(ctx)
 
 	return d, nil
 }

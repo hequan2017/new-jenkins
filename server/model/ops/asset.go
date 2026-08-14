@@ -15,13 +15,14 @@ const (
 // Asset 资产(主机台账)
 type Asset struct {
 	global.GVA_MODEL
-	Name   string         `json:"name" form:"name" gorm:"index;column:name;comment:资产名称"`
-	Host   string         `json:"host" form:"host" gorm:"column:host;comment:主机地址(IP/域名)"`
-	Port   int            `json:"port" form:"port" gorm:"column:port;comment:SSH端口;default:22"`
-	OS     string         `json:"os" form:"os" gorm:"column:os;comment:操作系统"`
-	Tags   datatypes.JSON `json:"tags" form:"tags" gorm:"column:tags;comment:标签(JSON 数组)" swaggertype:"array,string"`
-	Status string         `json:"status" form:"status" gorm:"column:status;comment:状态 online|offline|maintenance;default:offline"`
-	Remark string         `json:"remark" form:"remark" gorm:"column:remark;comment:备注"`
+	Name    string         `json:"name" form:"name" gorm:"index;column:name;comment:资产名称"`
+	Host    string         `json:"host" form:"host" gorm:"column:host;comment:主机地址(IP/域名)"`
+	Port    int            `json:"port" form:"port" gorm:"column:port;comment:SSH端口;default:22"`
+	OS      string         `json:"os" form:"os" gorm:"column:os;comment:操作系统"`
+	GroupID uint           `json:"groupId" form:"groupId" gorm:"index;column:group_id;comment:所属分组ID"`
+	Tags    datatypes.JSON `json:"tags" form:"tags" gorm:"column:tags;comment:标签(JSON 数组)" swaggertype:"array,string"`
+	Status  string         `json:"status" form:"status" gorm:"column:status;comment:状态 online|offline|maintenance;default:offline"`
+	Remark  string         `json:"remark" form:"remark" gorm:"column:remark;comment:备注"`
 }
 
 func (Asset) TableName() string { return "ops_assets" }

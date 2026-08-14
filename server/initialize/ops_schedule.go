@@ -6,8 +6,11 @@ import (
 )
 
 // LoadOpsInspectSchedules 从 ops_inspect_tasks 恢复启用的巡检任务调度(幂等)。
-// 必须在 RegisterTables(建表)之后调用。
 func LoadOpsInspectSchedules() {
-	// 巡检任务可能为空, 内部静默处理; 不阻断启动
 	service.ServiceGroupApp.OpsServiceGroup.InspectService.LoadSchedules()
+}
+
+// LoadOpsBackupSchedules 从 ops_backup_tasks 恢复启用的备份任务调度(幂等)。
+func LoadOpsBackupSchedules() {
+	service.ServiceGroupApp.OpsServiceGroup.BackupService.LoadSchedules()
 }

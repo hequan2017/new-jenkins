@@ -265,6 +265,77 @@ export const mkdir = (data) => {
   })
 }
 
+// ============================== 资产分组/环境 ==============================
+
+export const createAssetGroup = (data) => {
+  return service({ url: '/ops/createAssetGroup', method: 'post', data })
+}
+
+export const updateAssetGroup = (data) => {
+  return service({ url: '/ops/updateAssetGroup', method: 'put', data })
+}
+
+export const deleteAssetGroup = (data) => {
+  return service({ url: '/ops/deleteAssetGroup', method: 'delete', data })
+}
+
+export const getAssetGroupList = (data) => {
+  return service({ url: '/ops/getAssetGroupList', method: 'post', data })
+}
+
+export const getAllAssetGroups = (params) => {
+  return service({ url: '/ops/getAllAssetGroups', method: 'get', params })
+}
+
+// ============================== 告警中心 ==============================
+
+export const getAlertList = (data) => {
+  return service({ url: '/ops/getAlertList', method: 'post', data })
+}
+
+export const handleAlert = (data) => {
+  return service({ url: '/ops/handleAlert', method: 'post', data })
+}
+
+// ============================== 调度任务中心 ==============================
+
+export const getScheduleList = (params) => {
+  return service({ url: '/ops/getScheduleList', method: 'get', params })
+}
+
+// ============================== 备份恢复 ==============================
+
+export const createBackupTask = (data) => {
+  return service({ url: '/ops/createBackupTask', method: 'post', data })
+}
+
+export const updateBackupTask = (data) => {
+  return service({ url: '/ops/updateBackupTask', method: 'put', data })
+}
+
+export const toggleBackupTask = (data) => {
+  return service({ url: '/ops/toggleBackupTask', method: 'post', data })
+}
+
+export const runBackupTask = (data) => {
+  return service({ url: '/ops/runBackupTask', method: 'post', data })
+}
+
+export const deleteBackupTask = (data) => {
+  return service({ url: '/ops/deleteBackupTask', method: 'delete', data })
+}
+
+export const getBackupTaskList = (data) => {
+  return service({ url: '/ops/getBackupTaskList', method: 'post', data })
+}
+
+export const getBackupRecordList = (data) => {
+  return service({ url: '/ops/getBackupRecordList', method: 'post', data })
+}
+
+export const downloadBackupUrl = (recordId) =>
+  `/ops/downloadBackup?recordId=${recordId}`
+
 // ============================== 工具:状态映射 ==============================
 
 // 工单状态 -> 显示文案 / Element Plus tag 类型

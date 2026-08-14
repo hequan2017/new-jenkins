@@ -124,15 +124,19 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 		{MenuLevel: 1, Hidden: true, ParentId: menuNameMap["workflow"], Path: "wfPipelineEdit/:id", Name: "WorkflowPipelineEdit", Component: "view/workflow/pipeline/edit.vue", Sort: 3, Meta: Meta{Title: "编辑流水线", Icon: "edit"}},
 		{MenuLevel: 1, Hidden: true, ParentId: menuNameMap["workflow"], Path: "wfBuildDetail/:id", Name: "WorkflowBuildDetail", Component: "view/workflow/build/detail.vue", Sort: 4, Meta: Meta{Title: "构建详情", Icon: "view"}},
 
-		// 运维中心(大盘 / 资产 / 凭据 / 跳板机 / 文件 / 工单 / 巡检 / 审计)
+		// 运维中心(大盘 / 资产 / 分组 / 凭据 / 跳板机 / 文件 / 工单 / 巡检 / 备份 / 告警 / 调度 / 审计)
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsDashboard", Name: "OpsDashboard", Component: "view/ops/dashboard/index.vue", Sort: 0, Meta: Meta{Title: "运维大盘", Icon: "data-line", KeepAlive: true}},
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsAsset", Name: "OpsAssetList", Component: "view/ops/asset/index.vue", Sort: 1, Meta: Meta{Title: "资产管理", Icon: "coin", KeepAlive: true}},
-		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsCredential", Name: "OpsCredentialList", Component: "view/ops/credential/index.vue", Sort: 2, Meta: Meta{Title: "凭据管理", Icon: "key", KeepAlive: true}},
-		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsBastion", Name: "OpsBastion", Component: "view/ops/bastion/index.vue", Sort: 3, Meta: Meta{Title: "跳板机", Icon: "monitor-gva", KeepAlive: true}},
-		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsFile", Name: "OpsFile", Component: "view/ops/file/index.vue", Sort: 4, Meta: Meta{Title: "文件管理", Icon: "folder-opened", KeepAlive: true}},
-		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsTicket", Name: "OpsTicketList", Component: "view/ops/ticket/index.vue", Sort: 5, Meta: Meta{Title: "发版工单", Icon: "tickets", KeepAlive: true}},
-		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsInspect", Name: "OpsInspectList", Component: "view/ops/inspect/index.vue", Sort: 6, Meta: Meta{Title: "巡检监控", Icon: "view", KeepAlive: true}},
-		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsAudit", Name: "OpsAuditList", Component: "view/ops/audit/index.vue", Sort: 7, Meta: Meta{Title: "操作审计", Icon: "document", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsGroup", Name: "OpsGroupList", Component: "view/ops/group/index.vue", Sort: 2, Meta: Meta{Title: "资产分组", Icon: "files", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsCredential", Name: "OpsCredentialList", Component: "view/ops/credential/index.vue", Sort: 3, Meta: Meta{Title: "凭据管理", Icon: "key", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsBastion", Name: "OpsBastion", Component: "view/ops/bastion/index.vue", Sort: 4, Meta: Meta{Title: "跳板机", Icon: "monitor-gva", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsFile", Name: "OpsFile", Component: "view/ops/file/index.vue", Sort: 5, Meta: Meta{Title: "文件管理", Icon: "folder-opened", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsTicket", Name: "OpsTicketList", Component: "view/ops/ticket/index.vue", Sort: 6, Meta: Meta{Title: "发版工单", Icon: "tickets", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsInspect", Name: "OpsInspectList", Component: "view/ops/inspect/index.vue", Sort: 7, Meta: Meta{Title: "巡检监控", Icon: "view", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsBackup", Name: "OpsBackupList", Component: "view/ops/backup/index.vue", Sort: 8, Meta: Meta{Title: "备份恢复", Icon: "download", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsAlert", Name: "OpsAlertList", Component: "view/ops/alert/index.vue", Sort: 9, Meta: Meta{Title: "告警中心", Icon: "warning", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsSchedule", Name: "OpsSchedule", Component: "view/ops/schedule/index.vue", Sort: 10, Meta: Meta{Title: "调度中心", Icon: "timer", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsAudit", Name: "OpsAuditList", Component: "view/ops/audit/index.vue", Sort: 11, Meta: Meta{Title: "操作审计", Icon: "document", KeepAlive: true}},
 
 		// systemTools子菜单(编程辅助)
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["systemTools"], Path: "autoCode", Name: "autoCode", Component: "plugin/auto/view/autoCode/index.vue", Sort: 1, Meta: Meta{Title: "代码生成器", Icon: "magic-stick"}},

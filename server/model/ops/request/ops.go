@@ -107,3 +107,52 @@ type InspectTaskInput struct {
 	Enabled      bool   `json:"enabled" form:"enabled"`
 	Remark       string `json:"remark" form:"remark"`
 }
+
+// AssetGroupSearch 资产分组分页查询
+type AssetGroupSearch struct {
+	common.PageInfo
+	Name string `json:"name" form:"name"`
+	Env  string `json:"env" form:"env"`
+}
+
+// AlertSearch 告警分页查询
+type AlertSearch struct {
+	common.PageInfo
+	Source string `json:"source" form:"source"`
+	Level  string `json:"level" form:"level"`
+	Status string `json:"status" form:"status"`
+}
+
+// HandleAlertReq 处理告警
+type HandleAlertReq struct {
+	ID      uint   `json:"id" form:"id"`
+	Status  string `json:"status" form:"status"`  // resolved | ignored
+	Comment string `json:"comment" form:"comment"`
+}
+
+// BackupTaskSearch 备份任务分页查询
+type BackupTaskSearch struct {
+	common.PageInfo
+	Name    string `json:"name" form:"name"`
+	Enabled *bool  `json:"enabled" form:"enabled"`
+}
+
+// BackupRecordSearch 备份记录分页查询
+type BackupRecordSearch struct {
+	common.PageInfo
+	TaskID uint   `json:"taskId" form:"taskId"`
+	Status string `json:"status" form:"status"`
+}
+
+// BackupTaskInput 备份任务创建/更新入参
+type BackupTaskInput struct {
+	Name         string `json:"name" form:"name"`
+	AssetID      uint   `json:"assetId" form:"assetId"`
+	CredentialID uint   `json:"credentialId" form:"credentialId"`
+	RemotePath   string `json:"remotePath" form:"remotePath"`
+	Spec         string `json:"spec" form:"spec"`
+	WithSeconds  bool   `json:"withSeconds" form:"withSeconds"`
+	Enabled      bool   `json:"enabled" form:"enabled"`
+	KeepCount    int    `json:"keepCount" form:"keepCount"`
+	Remark       string `json:"remark" form:"remark"`
+}
