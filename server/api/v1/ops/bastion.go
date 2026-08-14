@@ -1,9 +1,13 @@
 package ops
 
 import (
+	"fmt"
+
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
+	opsmodel "github.com/flipped-aurora/gin-vue-admin/server/model/ops"
 	opsReq "github.com/flipped-aurora/gin-vue-admin/server/model/ops/request"
 	opssvc "github.com/flipped-aurora/gin-vue-admin/server/service/ops"
+	"github.com/flipped-aurora/gin-vue-admin/server/utils"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils/logger"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils/ws"
 	"github.com/gin-gonic/gin"
@@ -49,12 +53,20 @@ func (a *BastionApi) ExecCommand(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	uid := utils.GetUserID(c)
+	uname := utils.GetUserName(c)
+	target := fmt.Sprintf("asset=%d cred=%d", req.AssetID, req.CredentialID)
 	out, err := sshService.ExecCommand(c.Request.Context(), req.AssetID, req.CredentialID, req.Command)
 	if err != nil {
 		logger.WithCtx(c.Request.Context()).Mod("ops").Err(err).Warn("跳板机命令执行失败")
+		// 审计: 记录命令与失败
+		_ = auditService.Record(c.Request.Context(), uid, uname, opsmodel.AuditActionCmdExec,
+			target, c.ClientIP(), "failed", req.Command+"\n"+err.Error())
 		response.OkWithDetailed(gin.H{"output": out, "error": err.Error()}, "执行完成(含错误)", c)
 		return
 	}
+	_ = auditService.Record(c.Request.Context(), uid, uname, opsmodel.AuditActionCmdExec,
+		target, c.ClientIP(), "success", req.Command)
 	response.OkWithDetailed(gin.H{"output": out}, "执行完成", c)
 }
 

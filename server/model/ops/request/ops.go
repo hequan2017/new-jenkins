@@ -72,3 +72,38 @@ type ApproveTicketReq struct {
 	Approve bool   `json:"approve" form:"approve"` // true=通过并触发流水线, false=拒绝
 	Comment string `json:"comment" form:"comment"`
 }
+
+// AuditSearch 审计日志分页查询
+type AuditSearch struct {
+	common.PageInfo
+	Action     string `json:"action" form:"action"`
+	Status     string `json:"status" form:"status"`
+	OperatorID uint   `json:"operatorId" form:"operatorId"`
+}
+
+// InspectTaskSearch 巡检任务分页查询
+type InspectTaskSearch struct {
+	common.PageInfo
+	Name    string `json:"name" form:"name"`
+	Enabled *bool  `json:"enabled" form:"enabled"`
+}
+
+// InspectResultSearch 巡检结果分页查询
+type InspectResultSearch struct {
+	common.PageInfo
+	TaskID uint   `json:"taskId" form:"taskId"`
+	Status string `json:"status" form:"status"`
+}
+
+// InspectTaskInput 巡检任务创建/更新入参
+type InspectTaskInput struct {
+	Name         string `json:"name" form:"name"`
+	AssetID      uint   `json:"assetId" form:"assetId"`
+	CredentialID uint   `json:"credentialId" form:"credentialId"`
+	Command      string `json:"command" form:"command"`   // 巡检命令(输出含关键字时判定异常)
+	Keyword      string `json:"keyword" form:"keyword"`   // 异常关键字(逗号分隔; 命中则 status=alert)
+	Spec         string `json:"spec" form:"spec"`         // cron 表达式
+	WithSeconds  bool   `json:"withSeconds" form:"withSeconds"`
+	Enabled      bool   `json:"enabled" form:"enabled"`
+	Remark       string `json:"remark" form:"remark"`
+}

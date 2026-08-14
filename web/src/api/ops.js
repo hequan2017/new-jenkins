@@ -136,6 +136,135 @@ export const findTicket = (params) => {
   })
 }
 
+// ============================== 运维大盘 ==============================
+
+export const getDashboard = (params) => {
+  return service({
+    url: '/ops/getDashboard',
+    method: 'get',
+    params
+  })
+}
+
+// ============================== 审计日志 ==============================
+
+export const getAuditList = (data) => {
+  return service({
+    url: '/ops/getAuditList',
+    method: 'post',
+    data
+  })
+}
+
+// ============================== 巡检任务 ==============================
+
+export const createInspectTask = (data) => {
+  return service({
+    url: '/ops/createInspectTask',
+    method: 'post',
+    data
+  })
+}
+
+export const updateInspectTask = (data) => {
+  return service({
+    url: '/ops/updateInspectTask',
+    method: 'put',
+    data
+  })
+}
+
+export const toggleInspectTask = (data) => {
+  return service({
+    url: '/ops/toggleInspectTask',
+    method: 'post',
+    data
+  })
+}
+
+export const runInspectTask = (data) => {
+  return service({
+    url: '/ops/runInspectTask',
+    method: 'post',
+    data
+  })
+}
+
+export const deleteInspectTask = (data) => {
+  return service({
+    url: '/ops/deleteInspectTask',
+    method: 'delete',
+    data
+  })
+}
+
+export const getInspectTaskList = (data) => {
+  return service({
+    url: '/ops/getInspectTaskList',
+    method: 'post',
+    data
+  })
+}
+
+export const getInspectResultList = (data) => {
+  return service({
+    url: '/ops/getInspectResultList',
+    method: 'post',
+    data
+  })
+}
+
+// ============================== 远程文件管理(SFTP) ==============================
+
+export const listDir = (data, dir) => {
+  return service({
+    url: '/ops/listDir',
+    method: 'post',
+    data,
+    params: dir ? { dir } : {}
+  })
+}
+
+export const readFile = (data) => {
+  return service({
+    url: '/ops/readFile',
+    method: 'post',
+    data
+  })
+}
+
+export const writeFile = (data) => {
+  return service({
+    url: '/ops/writeFile',
+    method: 'post',
+    data
+  })
+}
+
+export const removeFile = (data) => {
+  return service({
+    url: '/ops/removeFile',
+    method: 'post',
+    data
+  })
+}
+
+export const renameFile = (data) => {
+  return service({
+    url: '/ops/renameFile',
+    method: 'post',
+    data
+  })
+}
+
+export const mkdir = (data) => {
+  return service({
+    url: '/ops/mkdir',
+    method: 'post',
+    data
+  })
+}
+
 // ============================== 工具:状态映射 ==============================
 
 // 工单状态 -> 显示文案 / Element Plus tag 类型

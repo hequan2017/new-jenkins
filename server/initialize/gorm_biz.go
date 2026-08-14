@@ -18,10 +18,13 @@ func bizModel() error {
 		workflow.PipelineBuildStage{},
 		workflow.PipelineBuildStep{},
 		workflow.PipelineBuildLog{},
-		// ops 运维模块(资产管理 / 跳板机 / 工单发版)
+		// ops 运维模块(资产管理 / 跳板机 / 工单发版 / 审计 / 巡检)
 		ops.Asset{},
 		ops.Credential{},
 		ops.Ticket{},
+		ops.AuditRecord{},
+		ops.InspectTask{},
+		ops.InspectResult{},
 	)
 	if err != nil {
 		return err

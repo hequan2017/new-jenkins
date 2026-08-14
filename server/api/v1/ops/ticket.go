@@ -1,9 +1,13 @@
 package ops
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	commonReq "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
 	opsReq "github.com/flipped-aurora/gin-vue-admin/server/model/ops/request"
+	opsmodel "github.com/flipped-aurora/gin-vue-admin/server/model/ops"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils/logger"
 	"github.com/gin-gonic/gin"
@@ -124,12 +128,21 @@ func (a *TicketApi) ApproveTicket(c *gin.Context) {
 		return
 	}
 	uid := utils.GetUserID(c)
+	uname := utils.GetUserName(c)
 	t, err := ticketService.Approve(c.Request.Context(), req, uid)
 	if err != nil {
 		logger.WithCtx(c.Request.Context()).Mod("ops").Err(err).Warn("工单审批失败")
 		response.FailWithMessage("审批失败: "+err.Error(), c)
 		return
 	}
+	// 审计: 工单审批结果
+	action := "reject"
+	if req.Approve {
+		action = "approve"
+	}
+	_ = auditService.Record(c.Request.Context(), uid, uname, opsmodel.AuditActionTicketOp,
+		fmt.Sprintf("ticket=%d %s", t.ID, action), c.ClientIP(), "success",
+		"pipeline="+strconv.FormatUint(uint64(t.PipelineID), 10)+" comment="+req.Comment)
 	response.OkWithDetailed(gin.H{"id": t.ID, "status": t.Status, "buildId": t.BuildID}, "审批完成", c)
 }
 

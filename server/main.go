@@ -50,5 +50,6 @@ func initializeSystem() {
 		initialize.RegisterTables()             // 初始化表
 		initialize.LoadTimedTasks()             // 从 DB 恢复定时任务调度(必须在建表后)
 		initialize.LoadWorkflowSchedules()      // 从 DB 恢复流水线定时调度(必须在建表后)
+		initialize.LoadOpsInspectSchedules()    // 从 DB 恢复运维巡检调度(必须在建表后)
 	}
 }

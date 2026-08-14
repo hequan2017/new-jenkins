@@ -7,7 +7,7 @@ import (
 
 type OpsRouter struct{}
 
-// InitOpsRouter 注册运维模块路由(资产 / 凭据 / 跳板机 / 工单)。
+// InitOpsRouter 注册运维模块路由(资产 / 凭据 / 跳板机 / 工单 / 审计 / 巡检 / 大盘 / 文件)。
 // 全部挂在 PrivateGroup, 终端 WS 路由不挂 OperationRecord 与 Timeout 中间件。
 func (r *OpsRouter) InitOpsRouter(Router *gin.RouterGroup) {
 	opsRouter := Router.Group("ops").Use(middleware.OperationRecord())
@@ -29,12 +29,30 @@ func (r *OpsRouter) InitOpsRouter(Router *gin.RouterGroup) {
 		opsRouter.DELETE("deleteTicket", opsApi.DeleteTicket)
 		opsRouter.POST("approveTicket", opsApi.ApproveTicket)
 		opsRouter.POST("cancelTicket", opsApi.CancelTicket)
+		// 巡检任务
+		opsRouter.POST("createInspectTask", opsApi.CreateInspectTask)
+		opsRouter.PUT("updateInspectTask", opsApi.UpdateInspectTask)
+		opsRouter.POST("toggleInspectTask", opsApi.ToggleInspectTask)
+		opsRouter.POST("runInspectTask", opsApi.RunInspectTask)
+		opsRouter.DELETE("deleteInspectTask", opsApi.DeleteInspectTask)
+		// 文件管理
+		opsRouter.POST("writeFile", opsApi.WriteFile)
+		opsRouter.POST("removeFile", opsApi.RemoveFile)
+		opsRouter.POST("renameFile", opsApi.RenameFile)
+		opsRouter.POST("mkdir", opsApi.Mkdir)
 	}
 	{
 		opsRouterWithoutRecord.POST("getAssetList", opsApi.GetAssetList)
 		opsRouterWithoutRecord.POST("getCredentialList", opsApi.GetCredentialList)
 		opsRouterWithoutRecord.POST("getTicketList", opsApi.GetTicketList)
 		opsRouterWithoutRecord.GET("findTicket", opsApi.FindTicket)
+		opsRouterWithoutRecord.POST("getAuditList", opsApi.GetAuditList)
+		opsRouterWithoutRecord.POST("getInspectTaskList", opsApi.GetInspectTaskList)
+		opsRouterWithoutRecord.POST("getInspectResultList", opsApi.GetInspectResultList)
+		opsRouterWithoutRecord.GET("getDashboard", opsApi.GetDashboard)
+		// 列目录/读文件为查询性质, 不记操作记录
+		opsRouterWithoutRecord.POST("listDir", opsApi.ListDir)
+		opsRouterWithoutRecord.POST("readFile", opsApi.ReadFile)
 		// 终端 WS: 不走 OperationRecord, 也不可套 Timeout(长连接)
 		opsRouterWithoutRecord.GET("terminal", opsApi.TerminalStream)
 	}
