@@ -142,7 +142,7 @@ export const useRouterStore = defineStore('router', () => {
     let topActive = sessionStorage.getItem('topActive')
     // 初始化菜单内容，防止重复添加
     topMenu.value = [];
-    asyncRouters.value[0]?.children.forEach((item) => {
+    asyncRouters.value[0]?.children?.forEach((item) => {
       if (item.hidden) return
       menuMap[item.name] = item
       topMenu.value.push({ ...item, children: [] })
@@ -182,7 +182,7 @@ export const useRouterStore = defineStore('router', () => {
         component: 'view/error/reload.vue'
       })
     formatRouter(asyncRouter, routeMap)
-    baseRouter[0].children = asyncRouter
+    baseRouter[0].children = asyncRouter || []
     if (notLayoutRouterArr.length !== 0) {
       baseRouter.push(...notLayoutRouterArr)
     }

@@ -1,6 +1,7 @@
-# New Jenkins：自研类 Jenkins 声明式流水线引擎
+# New Jenkins：自研类 Jenkins 声明式流水线引擎 + 运维中心
 
 [![CI](https://github.com/hequan2017/new-jenkins/actions/workflows/ci.yaml/badge.svg)](https://github.com/hequan2017/new-jenkins/actions/workflows/ci.yaml)
+[![Pages](https://github.com/hequan2017/new-jenkins/actions/workflows/pages.yaml/badge.svg)](https://github.com/hequan2017/new-jenkins/actions/workflows/pages.yaml)
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](server/go.mod)
 [![Node.js](https://img.shields.io/badge/Node.js-20-339933?logo=node.js&logoColor=white)](web/Dockerfile)
@@ -8,10 +9,55 @@
 
 仓库地址：[github.com/hequan2017/new-jenkins](https://github.com/hequan2017/new-jenkins)
 
-New Jenkins 是基于 [gin-vue-admin](https://github.com/flipped-aurora/gin-vue-admin) 深度定制的全栈管理系统。项目保留 GVA 原有的 RBAC 权限、代码生成和插件化基础设施，并内置一套**自研类 Jenkins 声明式流水线引擎**，以轻量、可插拔的方式提供 CI/CD 与任务编排能力，不依赖外部 Jenkins 服务。
+New Jenkins 是基于 [gin-vue-admin](https://github.com/flipped-aurora/gin-vue-admin) 深度定制的全栈 DevOps 管理系统。项目保留 GVA 原有的 RBAC 权限、代码生成和插件化基础设施，并内置两大自研模块：
+
+- **声明式流水线引擎**：类 Jenkins 的 `流水线 -> 阶段 -> 步骤` 编排，HTTP / Shell 步骤、人工审批、参数体系、SSE 实时日志、cron 与 Webhook 触发，不依赖外部 Jenkins 服务；
+- **运维中心**：资产 / 分组 / 凭据管理、跳板机（命令执行 + Web 终端）、SFTP 文件管理、工单发版（审批后触发流水线）、巡检监控、备份恢复、告警中心、调度中心与操作审计。
 
 > [!IMPORTANT]
-> 本项目当前处于持续开发阶段，执行器运行在服务进程所在主机，尚未提供远程 Agent、工作空间隔离或凭据保险库。请先阅读[安全边界与当前限制](#安全边界与当前限制)和[许可证](#许可证)，再评估部署方式。
+> 本项目当前处于持续开发阶段。流水线执行器与 SSH 能力运行在服务进程所在主机，尚未提供远程 Agent、工作空间隔离或凭据保险库。请先阅读[安全边界与当前限制](#安全边界与当前限制)和[许可证](#许可证)，再评估部署方式。
+
+## 界面预览
+
+| 登录 | 首页大盘 |
+| --- | --- |
+| ![登录页](docs/screenshots/login.png) | ![首页](docs/screenshots/dashboard.png) |
+
+### 工作流平台
+
+| 流水线管理 | 流水线编辑器 |
+| --- | --- |
+| ![流水线管理](docs/screenshots/workflow-pipeline.png) | ![流水线编辑](docs/screenshots/workflow-pipeline-edit.png) |
+
+| 构建历史 | 构建详情（阶段 / 步骤 / 日志） |
+| --- | --- |
+| ![构建历史](docs/screenshots/workflow-build.png) | ![构建详情](docs/screenshots/workflow-build-detail.png) |
+
+### 运维中心
+
+| 运维大盘 | 资产管理 |
+| --- | --- |
+| ![运维大盘](docs/screenshots/ops-dashboard.png) | ![资产管理](docs/screenshots/ops-asset.png) |
+
+| 工单发版 | 告警中心 |
+| --- | --- |
+| ![工单发版](docs/screenshots/ops-ticket.png) | ![告警中心](docs/screenshots/ops-alert.png) |
+
+| 跳板机 | SFTP 文件管理 |
+| --- | --- |
+| ![跳板机](docs/screenshots/ops-bastion.png) | ![文件管理](docs/screenshots/ops-file.png) |
+
+| 巡检监控 | 备份恢复 |
+| --- | --- |
+| ![巡检监控](docs/screenshots/ops-inspect.png) | ![备份恢复](docs/screenshots/ops-backup.png) |
+
+| 调度中心 | 操作审计 |
+| --- | --- |
+| ![调度中心](docs/screenshots/ops-schedule.png) | ![操作审计](docs/screenshots/ops-audit.png) |
+
+| 资产分组 | 凭据管理 |
+| --- | --- |
+| ![资产分组](docs/screenshots/ops-group.png) | ![凭据管理](docs/screenshots/ops-credential.png) |
 
 ## 目录
 
@@ -21,9 +67,10 @@ New Jenkins 是基于 [gin-vue-admin](https://github.com/flipped-aurora/gin-vue-
 - [技术栈](#技术栈)
 - [系统架构](#系统架构)
 - [目录结构](#目录结构)
-- [数据模型](#数据模型workflow-模块wf_-前缀)
+- [数据模型](#数据模型)
 - [接口一览](#接口一览)
 - [状态与执行语义](#状态与执行语义)
+- [GitHub Pages 静态演示](#github-pages-静态演示)
 - [安全边界与当前限制](#安全边界与当前限制)
 - [配置说明](#配置说明)
 - [开发验证](#开发验证)
@@ -81,12 +128,23 @@ npm run dev
 
 前端开发服务默认访问 `http://127.0.0.1:8080`，`/api` 请求和 SSE 连接由 Vite 代理到后端 `8888` 端口。
 
+### 默认账号
+
+系统初始化完成后内置一个管理员账号，方便首次登录体验：
+
+| 用户名 | 密码 | 角色 |
+| --- | --- | --- |
+| `admin` | `123456` | 超级管理员（authority 888） |
+
+> [!WARNING]
+> 默认密码仅用于本地开发与演示。任何对外可访问的部署（哪怕是内网测试环境）都必须先在「个人信息」中修改该密码，并在「系统设置 → 安全配置」中按需开启验证码、失败锁定与密码强度策略。
+
 ### 开始使用流水线
 
-1. 登录系统并进入“工作流平台 → 流水线管理”。
+1. 登录系统并进入「工作流平台 → 流水线管理」。
 2. 新建流水线，配置参数、Stage 和 HTTP/Shell Step。
 3. 启用流水线后手动触发，或配置 cron/Webhook 触发。
-4. 在“构建历史”查看 Stage 状态、Step 日志和审批操作。
+4. 在「构建历史」查看 Stage 状态、Step 日志和审批操作。
 
 ## 核心特性
 
@@ -123,11 +181,33 @@ npm run dev
 | 手动 | 页面触发，带参数收集表单 |
 | 定时 | cron 表达式（支持 `@daily` 等描述符，可含秒位），基于 `robfig/cron` 注册；服务重启后自动从数据库恢复全部调度，启停联动 `enabled` 状态 |
 | Webhook | 公开触发入口 `POST /webhook/trigger/{id}`，以 `X-Webhook-Secret` 头做密钥鉴权，请求体键值对自动映射为构建参数 |
+| 工单 | 运维中心「工单发版」审批通过后自动触发绑定流水线，`trigger=ticket` 留审计痕迹 |
 
 ### 流水线管理
 
 - 增删改查（级联保存 Stage/Step 树）、启用/停用、**克隆**（深拷贝定义树，克隆后默认手动触发避免重复定时）
 - webhook 类型自动生成 32 字节随机密钥，更新时不覆盖已有密钥
+
+### 运维中心
+
+围绕「资产」的一站式运维能力，菜单位于系统顶部（工作流平台之后），包含 12 个页面：
+
+| 模块 | 页面 | 能力 |
+| --- | --- | --- |
+| 资产管理 | 运维大盘 / 资产 / 分组 / 凭据 | 资产在线状态、分组（prod/staging/dev 环境维度）、SSH 凭据（密码/密钥，加密存储） |
+| 跳板机 | 跳板机 / 文件管理 | 选资产执行命令、Web 终端（SSE 流式输出）、SFTP 目录浏览 / 上传 / 重命名 / 删除 |
+| 发布流程 | 工单发版 | 申请（选流水线 + 入参）→ 审批 → 触发构建，状态回填与审批意见留痕 |
+| 巡检备份 | 巡检监控 / 备份恢复 | 周期 SSH 执行检查命令、命中关键字生成告警；定期 SFTP 拉取远程文件归档本地、保留份数控制、支持下载恢复 |
+| 告警与调度 | 告警中心 / 调度中心 | 巡检 / 工单 / 备份产生的告警统一处理（解决 / 忽略）；汇总流水线 cron、巡检、备份的统一调度视图 |
+| 审计 | 操作审计 | 登录、命令执行、终端会话、文件操作、工单操作、巡检等操作全量落表，支持按动作 / 状态 / 关键字检索 |
+
+运维中心与流水线引擎深度联动：工单审批通过即触发流水线构建，巡检异常与备份失败自动进入告警中心，所有页面共享资产管理的主机与凭据。
+
+### 平台能力（继承自 GVA）
+
+- RBAC 权限控制（Casbin）、行级数据权限（GORM 全局回调）
+- 前后端插件机制，插件可独立打包分发
+- 代码生成、表单设计器、Swagger 文档、统一响应结构
 
 ## 声明式定义示例
 
@@ -211,20 +291,14 @@ npm run dev
 
 参数支持 `${param.name}` 和 `$param.name` 两种写法。替换仅发生在步骤配置的字符串值中，未声明参数、重复参数、未知参数或类型不匹配都会在触发阶段被拒绝。
 
-### 平台能力（继承自 GVA）
-
-- RBAC 权限控制（Casbin）、行级数据权限（GORM 全局回调）
-- 前后端插件机制，插件可独立打包分发
-- 代码生成、表单设计器、Swagger 文档、统一响应结构
-
 ## 技术栈
 
 | 端 | 技术 |
 | --- | --- |
-| 前端 | Vue 3、Vite、Pinia、Element Plus、UnoCSS、Vue Router、Axios、ECharts、VueUse、SSE |
-| 后端 | Go、Gin、GORM、Casbin、Viper、Zap、Redis、JWT、robfig/cron |
+| 前端 | Vue 3、Vite、Pinia、Element Plus、UnoCSS、Vue Router、Axios、ECharts、VueUse、SSE、xterm |
+| 后端 | Go、Gin、GORM、Casbin、Viper、Zap、Redis、JWT、robfig/cron、golang.org/x/crypto/ssh |
 | 存储 | 默认 SQLite（开箱即用），支持 MySQL / PostgreSQL / SQL Server / Oracle |
-| 部署 | Docker、docker-compose、Kubernetes |
+| 部署 | Docker、docker-compose、Kubernetes、GitHub Pages（静态演示） |
 
 ## 系统架构
 
@@ -242,12 +316,12 @@ flowchart TB
     subgraph Server["后端服务 server/（Go + Gin，Router → API → Service → Model）"]
         direction TB
         ROUTER["路由层<br>JWT → MustChangePwd → Casbin → DataScope 中间件链"]
-        API["API 层 api/v1/workflow<br>流水线 / 构建 / 审批 / Webhook 入口"]
-        SVC["Service 层 service/workflow"]
+        WFAPI["api/v1/workflow<br>流水线 / 构建 / 审批 / Webhook"]
+        OPSAPI["api/v1/ops<br>资产 / 跳板机 / 工单 / 巡检 / 备份 / 告警"]
         ENGINE["engine.go 编排引擎<br>Stage → Step 状态机 · 审批 gate · 事件流"]
         EXEC["executor.go 可插拔执行器<br>http 回调 · shell 命令 · SSRF 防护"]
         SCHED["schedule.go 定时调度<br>robfig/cron · 重启自动恢复"]
-        CRUD["pipeline.go / build.go<br>定义 CRUD · 构建触发 / 取消 / 重跑"]
+        OPS["service/ops<br>SSH/SFTP · 工单触发 · 巡检 · 备份 · 告警 · 审计"]
         GVA["GVA 平台基础设施<br>RBAC · 数据权限 · 代码生成 · 插件机制"]
     end
 
@@ -259,23 +333,27 @@ flowchart TB
     subgraph Deploy["部署方式"]
         DOCKER["Docker / docker-compose"]
         K8S["Kubernetes"]
+        PAGES["GitHub Pages<br>静态演示站"]
     end
 
     UI --> VITE
     VITE -->|HTTP + SSE| ROUTER
-    WU -->|"POST /webhook/trigger/{id}"| API
-    ROUTER --> API
-    API --> SVC
-    SVC --> ENGINE
-    SVC --> CRUD
+    WU -->|"POST /webhook/trigger/{id}"| WFAPI
+    ROUTER --> WFAPI
+    ROUTER --> OPSAPI
+    WFAPI --> ENGINE
+    WFAPI --> SCHED
+    OPSAPI --> OPS
     ENGINE --> EXEC
-    ENGINE --> SCHED
-    ENGINE --> CRUD
+    OPS -->|"工单审批通过"| ENGINE
+    OPS -->|"巡检/备份告警"| DB
+    ENGINE --> DB
+    OPS --> DB
+    WFAPI --> GVA
+    OPS --> GVA
+    WFAPI --> REDIS
     ENGINE -.->|"SSE 事件流 build:status / step:log"| UI
-    SVC --> GVA
-    CRUD --> DB
-    EXEC --> DB
-    SVC --> REDIS
+    OPS -.->|"SSE 终端流 terminal"| UI
     Server -.->|镜像化部署| Deploy
 ```
 
@@ -283,26 +361,36 @@ flowchart TB
 
 ```
 ├── server/                     Go + Gin 后端
-│   ├── api/v1/workflow/        API 层（触发/审批/Webhook 等）
-│   ├── model/workflow/         数据模型与 request/response 结构
+│   ├── api/v1/workflow/        流水线/构建/审批/Webhook API
+│   ├── api/v1/ops/             运维中心 API（资产/跳板机/工单/巡检/备份/告警/审计）
+│   ├── model/workflow/         流水线数据模型与 request/response 结构
+│   ├── model/ops/              运维中心数据模型
 │   ├── service/workflow/       Service 层（引擎 / 执行器 / 调度 / 构建 / 流水线）
 │   │   ├── engine.go           编排核心：Stage→Step 状态机 + SSE + 审批 gate
 │   │   ├── executor.go         可插拔执行器（http / shell）+ 变量替换 + SSRF 防护
 │   │   ├── schedule.go         定时调度（robfig/cron，重启恢复）
 │   │   ├── build.go            构建触发 / 取消 / 重跑 / 审批
 │   │   └── pipeline.go         流水线定义 CRUD / 克隆 / 校验
-│   ├── router/workflow/        路由注册（含公开 Webhook 路由）
+│   ├── service/ops/            运维中心 Service（SSH/SFTP/工单触发/巡检/备份/告警/审计）
+│   ├── router/workflow/        流水线路由注册（含公开 Webhook 路由）
+│   ├── router/ops/             运维中心路由注册（含 SSE 终端流）
 │   ├── initialize/             启动装配（含 LoadWorkflowSchedules 恢复调度）
 │   └── ...                     GVA 既有基础设施
 ├── web/                        Vue 3 + Vite 前端
 │   ├── src/view/workflow/      流水线列表/编辑、构建列表/详情页面
-│   └── src/api/workflow.js     前端 API 封装
+│   ├── src/view/ops/           运维中心 12 个页面
+│   ├── src/api/workflow.js     流水线前端 API 封装
+│   ├── src/api/ops.js          运维中心前端 API 封装
+│   └── src/view/dashboard/     首页大盘（平台数据聚合）
 ├── deploy/                     部署资产（Docker、docker-compose、Kubernetes）
+├── docs/screenshots/           README 界面截图
 ├── aiDoc/                      结构化 AI 协作文档层（规则、示例、记忆）
-└── .github/                    CI 工作流、Issue 模板与社区配置
+└── .github/                    CI / Pages 工作流、Issue 模板与社区配置
 ```
 
-## 数据模型（workflow 模块，`wf_` 前缀）
+## 数据模型
+
+### workflow 模块（`wf_` 前缀）
 
 | 表 | 说明 |
 | --- | --- |
@@ -313,6 +401,19 @@ flowchart TB
 | `wf_pipeline_build_stages` | 构建阶段运行视图（名称/顺序/审批/容错/并行快照、状态、时间） |
 | `wf_pipeline_build_steps` | 构建步骤运行视图（名称/类型/顺序/配置快照、退出码、时间） |
 | `wf_pipeline_build_logs` | 日志行（build+step+seq 定位，流分类，分页/推流） |
+
+### ops 模块（`ops_` 前缀）
+
+| 表 | 说明 |
+| --- | --- |
+| `ops_assets` | 资产（主机地址、SSH 端口、系统、分组、标签、在线状态） |
+| `ops_asset_groups` | 资产分组（prod / staging / dev 环境维度） |
+| `ops_credentials` | SSH 凭据（密码 / 私钥，加密存储） |
+| `ops_tickets` | 发版工单（绑定流水线 + 入参、申请人 / 审批人、状态机、构建回填） |
+| `ops_inspect_tasks` / `ops_inspect_results` | 巡检任务与每次执行结果（命中关键字即异常） |
+| `ops_backup_tasks` / `ops_backup_records` | 备份任务与归档记录（远程路径、保留份数、本地归档位置） |
+| `ops_alerts` | 告警事件（来源 inspect / ticket / backup / manual，级别，处理状态） |
+| `ops_audit_records` | 操作审计（操作人、动作、对象、来源 IP、结果、详情） |
 
 ## 接口一览
 
@@ -340,6 +441,21 @@ flowchart TB
 | GET | `/workflow/getBuildDetail` | 构建详情（阶段/步骤视图） |
 | GET | `/workflow/getBuildLog` | 构建日志分页拉取 |
 | GET | `/workflow/buildStream` | SSE 实时事件流 |
+
+### 运维中心（需登录，均挂 `/ops` 前缀）
+
+| 分组 | 代表接口 | 说明 |
+| --- | --- | --- |
+| 资产 | `getAssetList` / `createAsset` / `updateAsset` / `deleteAsset` | 资产 CRUD |
+| 分组 | `getAssetGroupList` / `getAllAssetGroups` / `createAssetGroup` | 分组 CRUD |
+| 凭据 | `getCredentialList` / `createCredential` / `testConnection` | 凭据 CRUD 与连通性测试 |
+| 跳板机 | `execCommand` / `terminal`（SSE） | 命令执行与 Web 终端 |
+| 文件 | `listDir` / `readFile` / `writeFile` / `mkdir` / `renameFile` / `removeFile` | SFTP 文件管理 |
+| 工单 | `getTicketList` / `createTicket` / `approveTicket` / `cancelTicket` | 工单发版全流程 |
+| 巡检 | `getInspectTaskList` / `createInspectTask` / `runInspectTask` / `getInspectResultList` | 巡检任务与结果 |
+| 备份 | `getBackupTaskList` / `createBackupTask` / `runBackupTask` / `getBackupRecordList` / `downloadBackup` | 备份任务与归档下载 |
+| 告警 | `getAlertList` / `handleAlert` | 告警查询与处理 |
+| 调度 / 大盘 / 审计 | `getScheduleList` / `getDashboard` / `getAuditList` | 统一调度视图、大盘统计、审计检索 |
 
 ### Webhook（公开，免登录）
 
@@ -372,10 +488,22 @@ running ──步骤/阶段成功──> success
 - 最后一个阶段设置 `approval=true` 不再等待后续批准，因为已经没有下一阶段。
 - 构建状态和日志持久化到数据库；SSE 只负责实时增量，断线后页面通过详情与日志接口补齐。
 
+## GitHub Pages 静态演示
+
+仓库内置一键静态部署：`.github/workflows/pages.yaml` 在**推送到 `main`** 后自动执行测试（后端 `go vet` + workflow 单测、前端 `eslint`）、构建前端（hash 路由 + 相对资源路径）并发布到 GitHub Pages。
+
+- 全程使用 Actions 内置的 `GITHUB_TOKEN`（OIDC），**不需要配置任何仓库 Secret**；
+- 仓库需在 Settings → Pages 中把 Source 设为 **GitHub Actions**（一次性设置）；
+- 发布地址形如 `https://<owner>.github.io/<repo>/`；
+- Pages 站点只包含前端静态资源，**没有后端 API**：可预览登录页与整体界面结构，登录、流水线等需要后端的能力不可用。完整体验请按[快速开始](#快速开始)本地启动或参考[部署](#部署)。
+
+也支持在 Actions 页面手动触发（workflow_dispatch）重新发布。
+
 ## 安全边界与当前限制
 
 - Shell 命令等价于 Jenkins 的 `sh`：执行权限与服务进程相同，只应向可信流水线编辑者开放权限；本引擎不提供容器沙箱或命令白名单。
 - HTTP 步骤默认拒绝环回、链路本地和私网地址；只有明确设置 `allowPrivate=true` 才放行内部目标。
+- 运维中心的 SSH / SFTP 能力直接作用于目标资产：请仅录入受控资产、凭据落库加密存储但不等价于凭据保险库，务必限制运维中心相关菜单的角色授权。
 - 当前执行器运行在 GVA 单进程本机，不包含远程 Agent、工作空间隔离、制品库或凭据保险库。
 - SSE Hub 为进程内实现；多实例部署需要增加 Redis 等跨实例事件扇出，否则实时事件只到达承载该连接的实例。
 - 进程重启会恢复 cron 注册，但不会自动接管重启前处于 `running` 或 `running-approval` 的构建。
@@ -437,6 +565,7 @@ make image
 | Kubernetes | `deploy/kubernetes/` | 集群部署基础清单，使用前需结合实际环境调整 |
 | 独立镜像 | `server/Dockerfile`、`web/Dockerfile` | 分别构建后端与前端镜像 |
 | 一体化镜像 | `deploy/docker/Dockerfile` | 构建包含前后端产物的镜像 |
+| GitHub Pages | `.github/workflows/pages.yaml` | 前端静态演示站，推送 main 自动发布 |
 
 > [!WARNING]
 > Docker Compose 文件包含仅用于示例环境的数据库账号和明文口令。部署前必须替换所有示例凭据，限制数据库与 Redis 的网络暴露，并根据实际环境配置持久化、TLS、备份、资源限额和健康检查。现有清单不代表生产安全基线。
@@ -453,6 +582,7 @@ make image
 - 基于 Redis 等事件总线的多实例 SSE 扇出。
 - 服务重启后对运行中、审批中构建的恢复与接管。
 - 更丰富的声明式步骤、条件表达式和可复用模板。
+- 运维中心：批量命令执行、资产探活自动发现、告警通知渠道（邮件 / 钉钉 / 飞书）。
 
 路线图不构成版本或交付时间承诺，实际优先级以仓库 Issue 和维护计划为准。
 

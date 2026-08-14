@@ -1,0 +1,94 @@
+name: Pages
+
+# 推送到 main 自动测试、构建前端并发布 GitHub Pages 静态演示站。
+# 使用 Actions 内置的 GITHUB_TOKEN(OIDC), 不需要配置任何仓库 Secret。
+# 注意: Pages 站点只有前端静态资源, 没有后端 API, 仅用于界面预览。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Backend vet
+        working-directory: server
+        run: go vet ./...
+
+      - name: Backend tests
+        working-directory: server
+        run: go test ./service/workflow/...
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Frontend lint
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+
+  build:
+    name: Build and deploy static site
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build frontend
+        working-directory: web
+        run: |
+          npm ci
+          # hash 路由 + 相对资源路径, 适配 Pages 的子路径访问
+          npx vite build --mode production --base=./
+
+      - name: Disable Jekyll processing
+        run: touch web/dist/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

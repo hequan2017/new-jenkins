@@ -19,7 +19,12 @@
       class="relative z-10 flex h-full w-full items-center justify-center md:w-1/2"
     >
       <div class="w-4/5 md:w-96">
-        <EntryBrand class="mb-9" />
+        <EntryBrand class="mb-4" />
+        <p
+          class="mb-9 text-center text-sm tracking-wide text-muted-foreground"
+        >
+          声明式流水线 · 资产运维 · 工单发布
+        </p>
         <el-form
           ref="loginForm"
           :model="loginFormData"
@@ -76,7 +81,7 @@
               >登 录</el-button
             >
           </el-form-item>
-          <el-form-item v-if="isDev" class="mb-6">
+          <el-form-item v-if="isDev && needInit" class="mb-6">
             <el-button
               class="btn-hollow h-11 w-full"
               type="primary"
@@ -115,7 +120,7 @@
   import { captcha } from '@/api/user'
   import { checkDB } from '@/api/initdb'
   import BottomInfo from '@/components/bottomInfo/bottomInfo.vue'
-  import { reactive, ref } from 'vue'
+  import { onMounted, reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import { useRouter } from 'vue-router'
   import { useUserStore } from '@/pinia/modules/user'
@@ -124,6 +129,20 @@
 
   defineOptions({
     name: 'Login'
+  })
+
+  // 仅在开发环境且数据库确实未初始化时展示「前往初始化」入口
+  const needInit = ref(false)
+  onMounted(async () => {
+    if (!isDev) {
+      return
+    }
+    try {
+      const res = await checkDB()
+      needInit.value = res.code === 0 && !!res.data?.needInit
+    } catch (e) {
+      needInit.value = false
+    }
   })
 
   const router = useRouter()

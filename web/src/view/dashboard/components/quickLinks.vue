@@ -43,14 +43,15 @@
 
 <script setup>
   import {
-    Menu,
-    Link,
-    User,
-    Service,
+    Connection,
+    DataAnalysis,
+    Monitor,
+    Cpu,
+    Tickets,
+    Bell,
     Document,
     Reading,
-    Files,
-    Memo
+    Link
   } from '@element-plus/icons-vue'
   import { useRouter } from 'vue-router'
 
@@ -65,12 +66,16 @@
   }
 
   const shortcuts = [
-    { icon: Menu, title: '菜单管理', path: 'menu' },
-    { icon: Link, title: 'API管理', path: 'api' },
-    { icon: Service, title: '角色管理', path: 'authority' },
-    { icon: User, title: '用户管理', path: 'user' },
-    { icon: Files, title: '自动化包', path: 'autoPkg' },
-    { icon: Memo, title: '自动代码', path: 'autoCode' }
+    {
+      icon: Connection,
+      title: '流水线管理',
+      path: 'WorkflowPipelineList'
+    },
+    { icon: DataAnalysis, title: '构建历史', path: 'WorkflowBuildList' },
+    { icon: Monitor, title: '运维大盘', path: 'OpsDashboard' },
+    { icon: Cpu, title: '资产管理', path: 'OpsAssetList' },
+    { icon: Tickets, title: '工单发版', path: 'OpsTicketList' },
+    { icon: Bell, title: '告警中心', path: 'OpsAlertList' }
   ]
 
   const recentVisits = [

@@ -32,7 +32,7 @@
       <el-form-item v-if="form.triggerType === 'webhook' && form.webhookSecret" label="Webhook">
         <div class="flex items-center gap-2">
           <el-input
-            :model-value="`POST {{baseUrl}}/webhook/trigger/${form.ID || '{id}'}`"
+            :model-value="`POST ${baseUrl}/webhook/trigger/${form.ID || '{id}'}`"
             readonly
             class="!w-[360px]"
           />
