@@ -37,6 +37,9 @@ type Server struct {
 	// MCP配置
 	MCP MCP `mapstructure:"mcp" json:"mcp" yaml:"mcp"`
 
+	// 运维模块配置(资产管理 / 跳板机 / 工单发版)
+	Ops Ops `mapstructure:"ops" json:"ops" yaml:"ops"`
+
 	// 应用身份（日志静态字段 node/app_id/env）
 	App App `mapstructure:"app" json:"app" yaml:"app"`
 }

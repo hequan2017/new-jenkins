@@ -2,6 +2,7 @@ package initialize
 
 import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
+	"github.com/flipped-aurora/gin-vue-admin/server/model/ops"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/workflow"
 )
 
@@ -17,6 +18,10 @@ func bizModel() error {
 		workflow.PipelineBuildStage{},
 		workflow.PipelineBuildStep{},
 		workflow.PipelineBuildLog{},
+		// ops 运维模块(资产管理 / 跳板机 / 工单发版)
+		ops.Asset{},
+		ops.Credential{},
+		ops.Ticket{},
 	)
 	if err != nil {
 		return err

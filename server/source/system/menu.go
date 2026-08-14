@@ -63,6 +63,7 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "ai", Name: "ai", Component: "view/routerHolder.vue", Sort: 8, Meta: Meta{Title: "AI 工坊", Icon: "ai-gva"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "example", Name: "example", Component: "view/example/index.vue", Sort: 9, Meta: Meta{Title: "示例文件", Icon: "example-gva"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "workflow", Name: "workflow", Component: "view/routerHolder.vue", Sort: 14, Meta: Meta{Title: "工作流平台", Icon: "set-up"}},
+		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "ops", Name: "ops", Component: "view/routerHolder.vue", Sort: 15, Meta: Meta{Title: "运维中心", Icon: "server"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "plugin", Name: "plugin", Component: "view/routerHolder.vue", Sort: 10, Meta: Meta{Title: "插件系统", Icon: "cherry"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "https://www.gin-vue-admin.com", Name: "https://www.gin-vue-admin.com", Component: "/", Sort: 11, Meta: Meta{Title: "官方网站", Icon: "customer-gva"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "about", Name: "about", Component: "view/about/index.vue", Sort: 12, Meta: Meta{Title: "关于我们", Icon: "office-building"}},
@@ -122,6 +123,12 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 		// 隐藏页: 流水线编辑、构建详情(由列表/触发跳转进入, 不进菜单)
 		{MenuLevel: 1, Hidden: true, ParentId: menuNameMap["workflow"], Path: "wfPipelineEdit/:id", Name: "WorkflowPipelineEdit", Component: "view/workflow/pipeline/edit.vue", Sort: 3, Meta: Meta{Title: "编辑流水线", Icon: "edit"}},
 		{MenuLevel: 1, Hidden: true, ParentId: menuNameMap["workflow"], Path: "wfBuildDetail/:id", Name: "WorkflowBuildDetail", Component: "view/workflow/build/detail.vue", Sort: 4, Meta: Meta{Title: "构建详情", Icon: "view"}},
+
+		// 运维中心(资产管理 / 跳板机 / 工单发版)
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsAsset", Name: "OpsAssetList", Component: "view/ops/asset/index.vue", Sort: 1, Meta: Meta{Title: "资产管理", Icon: "coin", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsCredential", Name: "OpsCredentialList", Component: "view/ops/credential/index.vue", Sort: 2, Meta: Meta{Title: "凭据管理", Icon: "key", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsBastion", Name: "OpsBastion", Component: "view/ops/bastion/index.vue", Sort: 3, Meta: Meta{Title: "跳板机", Icon: "monitor-gva", KeepAlive: true}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["ops"], Path: "opsTicket", Name: "OpsTicketList", Component: "view/ops/ticket/index.vue", Sort: 4, Meta: Meta{Title: "发版工单", Icon: "tickets", KeepAlive: true}},
 
 		// systemTools子菜单(编程辅助)
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["systemTools"], Path: "autoCode", Name: "autoCode", Component: "plugin/auto/view/autoCode/index.vue", Sort: 1, Meta: Meta{Title: "代码生成器", Icon: "magic-stick"}},

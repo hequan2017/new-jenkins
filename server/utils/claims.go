@@ -26,7 +26,12 @@ func GetToken(c *gin.Context) string {
 		return token
 	}
 	token, _ = c.Cookie("x-token")
-	return token
+	if token != "" {
+		return token
+	}
+	// query 回退: WebSocket / EventSource 握手时无法设置自定义 header, 允许 ?token=xxx。
+	// token 仍走统一的 JWT 解析与黑名单校验, 不会绕过鉴权。
+	return c.Query("token")
 }
 
 func setTokenCookie(c *gin.Context, value string, maxAge int, expires time.Time) {

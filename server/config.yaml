@@ -274,3 +274,11 @@ mcp:
     name: GVA_MCP
     version: v1.0.0
     addr: 8889
+
+# 运维模块配置(资产管理 / 跳板机 / 工单发版)
+ops:
+    # 凭据(SSH 密码 / 私钥)对称加密密钥, 32 字节对应 AES-256-GCM。
+    # 生产环境务必替换为随机强密钥并妥善保管, 丢失则历史密文无法解密。
+    aes-key: "gva-ops-default-aes-key-change-me-32byte"
+    # 跳板机 SSH 连接 / 命令执行超时
+    ssh-timeout: 10s

@@ -18,6 +18,7 @@ func initBizRouter(routers ...*gin.RouterGroup) {
 	// 业务模块路由注册
 	router.RouterGroupApp.Workflow.InitWorkflowRouter(privateGroup)
 	router.RouterGroupApp.Workflow.InitWebhookRouter(publicGroup) // webhook 公开触发入口
+	router.RouterGroupApp.Ops.InitOpsRouter(privateGroup)         // 运维模块: 资产/跳板机/工单
 
 	holder(publicGroup, privateGroup)
 
